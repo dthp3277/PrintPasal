@@ -1,0 +1,88 @@
+	// 5. WhatsApp (Run in background)
+	if cfg.WhatsApp.Enabled {
+		go func() {
+			var waClient *whatsapp.Client
+			var sessionCtx context.Context
+			var cancelSession context.CancelFunc
+			var mu sync.Mutex
+
+			initClient := func() {
+				mu.Lock()
+				defer mu.Unlock()
+
+				// 1. CLEAR PREVIOUS
+				if cancelSession != nil {
+					cancelSession()
+				}
+				if waClient != nil {
+					waClient.Close()
+					waClient = nil
+				}
+
+				// 2. WAIT FOR FILE RELEASE
+				time.Sleep(500 * time.Millisecond)
+
+				// 3. START FRESH
+				sessionCtx, cancelSession = context.WithCancel(ctx)
+				var err error
+				waClient, err = whatsapp.New(sessionCtx, cfg, log, webServer.Hub)
+				if err != nil {
+					log.Errorf("Main", "WhatsApp init failed: %v", err)
+					return
+				}
+				
+				if err := waClient.Connect(sessionCtx); err != nil {
+					log.Errorf("Main", "WhatsApp connect error: %v", err)
+				}
+			}
+
+			webServer.OnWhatsAppTerminate = func() {
+				mu.Lock()
+				log.Info("Main", "Terminating session...")
+				if cancelSession != nil { cancelSession() }
+				if waClient != nil {
+					waClient.Logout(context.Background())
+					waClient = nil
+				}
+				// Force delete the directory after closure
+				time.Sleep(300 * time.Millisecond)
+				os.RemoveAll(cfg.WhatsApp.SessionDir)
+				
+				webServer.Hub.Broadcast(web.Message{Type: "status", Payload: map[string]string{
+					"whatsapp": "disconnected",
+					"wa_qr":    "",
+					"wa_pair_code": "",
+				}})
+				mu.Unlock()
+			}
+			
+			webServer.OnWhatsAppConnect = func() {
+				log.Info("Main", "Linking request received...")
+				go initClient()
+			}
+
+			webServer.OnWhatsAppConnectPhone = func(phone string) {
+				log.Infof("Main", "Phone link requested for %s", phone)
+				go func() {
+					mu.Lock()
+					if waClient != nil {
+						code, err := waClient.PairPhone(sessionCtx, phone)
+						if err != nil {
+							log.Errorf("Main", "Phone pairing failed: %v", err)
+						} else {
+							webServer.Hub.Broadcast(web.Message{Type: "status", Payload: map[string]string{
+								"whatsapp": "pending",
+								"wa_pair_code": code,
+							}})
+						}
+					}
+					mu.Unlock()
+				}()
+			}
+
+			go initClient()
+			
+			<-ctx.Done()
+			if cancelSession != nil { cancelSession() }
+		}()
+	}

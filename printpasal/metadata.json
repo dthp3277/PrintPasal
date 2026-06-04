@@ -1,0 +1,6 @@
+{
+  "name": "PrintPasal",
+  "description": "An elegant queue monitor for Dhiraj and Biraj Stationery, featuring real-time document printing options, mock WhatsApp and Gmail integrations, and an interactive browser-style PDF viewer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

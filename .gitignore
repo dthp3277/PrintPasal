@@ -1,0 +1,21 @@
+# Secrets
+token.json
+credentials.json
+config.json
+
+# Binaries
+bin/
+*.exe
+*.exe~
+
+# Logs
+logs/
+*.log
+
+# WhatsApp session
+wa-session/
+
+# Frontend
+printpasal/node_modules/
+printpasal/dist/
+printpasal/.env
