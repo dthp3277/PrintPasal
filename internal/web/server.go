@@ -188,6 +188,12 @@ func (s *Server) Start(addr string) error {
 	mux := http.NewServeMux()
 	mux.Handle("/ws", s.Hub)
 
+	// Ensure data directories exist in WD if not absolute to prevent resolve() from falling back
+	if !filepath.IsAbs(s.cfg.DownloadsDir) {
+		os.MkdirAll(filepath.Join(wd, s.cfg.DownloadsDir), 0755)
+	}
+	os.MkdirAll(filepath.Join(wd, "previews"), 0755)
+
 	downloadsDir := resolve("downloads", s.cfg.DownloadsDir)
 	mux.Handle("/downloads/", http.StripPrefix("/downloads/", http.FileServer(http.Dir(downloadsDir))))
 

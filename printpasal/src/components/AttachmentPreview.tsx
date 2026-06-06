@@ -281,7 +281,7 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
 
         {/* Filename */}
         <div className="hidden md:flex items-center gap-1.5 font-bold uppercase tracking-wider text-[10px] text-zinc-400 flex-1 min-w-0">
-          <FileText className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+          <FileText className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
           <span className="truncate">{attachment.fileName}</span>
         </div>
 

@@ -8,6 +8,7 @@ import ConnectionStatusHeader from './components/ConnectionStatusHeader';
 import AttachmentList from './components/AttachmentList';
 import AttachmentPreview from './components/AttachmentPreview';
 import PrinterWorkflow from './components/PrinterWorkflow';
+import SelectedFilesTray from './components/SelectedFilesTray';
 import { Attachment, ServiceInfo } from './types';
 import { Wifi, Plus, HelpCircle, Activity, Info, MessageSquare } from 'lucide-react';
 
@@ -22,11 +23,28 @@ export default function App() {
   });
   const [attachments, setAttachments] = useState<Attachment[]>(MOCK_ATTACHMENTS);
   const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isPrintWizardOpen, setIsPrintWizardOpen] = useState(false);
   const [simulationAlert, setSimulationAlert] = useState<string | null>(null);
   const [isGmailSyncing, setIsGmailSyncing] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
 
   const fetchFiles = () => {
     fetch('/api/files')
@@ -362,7 +380,9 @@ export default function App() {
           <AttachmentList 
             attachments={attachments}
             selectedAttachmentId={selectedAttachment ? selectedAttachment.id : null}
+            selectedIds={selectedIds}
             onSelectAttachment={handleSelectAttachment}
+            onToggleSelection={toggleSelection}
             onToggleUnread={handleToggleUnread}
             isSyncing={isGmailSyncing}
             onClearFiles={handleClearFiles}
@@ -381,10 +401,19 @@ export default function App() {
         {/* Column 2: Central Work & Preview Panel (2/3 size) */}
         <div id="preview-panel" className="flex-1 h-full overflow-hidden flex flex-col bg-[#09090e]">
           <div className="flex-1 min-h-0">
-            <AttachmentPreview 
-              attachment={selectedAttachment}
-              onOpenPrintWizard={() => setIsPrintWizardOpen(true)}
-            />
+            {selectedIds.size > 1 ? (
+              <SelectedFilesTray 
+                selectedAttachments={attachments.filter(a => selectedIds.has(a.id))}
+                onRemove={toggleSelection}
+                onClearAll={clearSelection}
+                onOpenPrintWizard={() => setIsPrintWizardOpen(true)}
+              />
+            ) : (
+              <AttachmentPreview 
+                attachment={selectedAttachment}
+                onOpenPrintWizard={() => setIsPrintWizardOpen(true)}
+              />
+            )}
           </div>
 
           {/* Quick instructions and debug terminal bar at the very footer */}
@@ -419,10 +448,18 @@ export default function App() {
       </div>
 
       {/* Printer Step-by-Step UI wizard overlay */}
-      {isPrintWizardOpen && selectedAttachment && (
+      {isPrintWizardOpen && (selectedAttachment || selectedIds.size > 0) && (
         <PrinterWorkflow 
-          attachment={selectedAttachment}
-          onClose={() => setIsPrintWizardOpen(false)}
+          attachments={
+            selectedIds.size > 1 
+              ? attachments.filter(a => selectedIds.has(a.id))
+              : selectedAttachment ? [selectedAttachment] : []
+          }
+          onClose={() => {
+            setIsPrintWizardOpen(false);
+            // Optional: clear selection after successful print? 
+            // For now let's keep it to allow re-printing.
+          }}
         />
       )}
     </div>

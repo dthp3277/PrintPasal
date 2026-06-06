@@ -4,13 +4,15 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Search, FileText, Image as ImageIcon, Calendar, User, MessageSquare, Inbox, Mail, Paperclip, RefreshCw, Trash2 } from 'lucide-react';
+import { Search, FileText, Image as ImageIcon, Calendar, User, MessageSquare, Inbox, Mail, Paperclip, RefreshCw, Trash2, CheckCircle, Circle } from 'lucide-react';
 import { Attachment, FileType, SourceType } from '../types';
 
 interface AttachmentListProps {
   attachments: Attachment[];
   selectedAttachmentId: string | null;
+  selectedIds?: Set<string>;
   onSelectAttachment: (attachment: Attachment) => void;
+  onToggleSelection?: (id: string) => void;
   onToggleUnread?: (id: string) => void;
   isSyncing?: boolean;
   onRefresh?: () => void;
@@ -20,7 +22,9 @@ interface AttachmentListProps {
 export default function AttachmentList({
   attachments,
   selectedAttachmentId,
+  selectedIds = new Set(),
   onSelectAttachment,
+  onToggleSelection,
   onToggleUnread,
   isSyncing,
   onRefresh,
@@ -57,7 +61,7 @@ export default function AttachmentList({
   const getFileIcon = (type: FileType) => {
     switch (type) {
       case 'pdf':
-        return <FileText className="w-4 h-4 text-rose-400" />;
+        return <FileText className="w-4 h-4 text-emerald-400" />;
       case 'image':
         return <ImageIcon className="w-4 h-4 text-emerald-400" />;
       default:
@@ -174,7 +178,7 @@ export default function AttachmentList({
             onClick={() => setActiveFilter('pdf')}
             className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap transition-all flex items-center gap-1 border ${
               activeFilter === 'pdf'
-                ? 'bg-rose-600 border-rose-500 text-white shadow-md shadow-rose-600/30'
+                ? 'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-600/30'
                 : 'bg-white/5 border-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-200'
             }`}
           >
@@ -214,6 +218,7 @@ export default function AttachmentList({
               <div className="space-y-2 border-l border-zinc-800/50 pl-2 ml-1">
                 {groupedAttachments[dateLabel].map((att) => {
                   const isSelected = selectedAttachmentId === att.id;
+                  const isChecked = selectedIds.has(att.id);
                   
                   return (
                     <div
@@ -225,15 +230,30 @@ export default function AttachmentList({
                           onToggleUnread(att.id);
                         }
                       }}
-                      className={`group relative flex flex-col gap-2 rounded-xl border p-3.5 transition-all duration-200 cursor-pointer ${
+                      className={`group relative flex flex-row gap-3 rounded-xl border p-3.5 transition-all duration-200 cursor-pointer ${
                         isSelected
-                          ? att.source === 'gmail'
-                            ? 'bg-rose-500/10 border-rose-500/80 text-white shadow-[0_0_15px_rgba(239,68,68,0.15)] ring-1 ring-rose-500/25'
-                            : 'bg-emerald-500/10 border-emerald-500/80 text-white shadow-[0_0_15px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/25'
-                          : 'bg-[#0d0d14] border-white/5 hover:border-white/10 text-zinc-300 hover:bg-white/2'
+                          ? 'bg-emerald-500/10 border-emerald-500/80 text-white shadow-[0_0_15px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/25'
+                          : isChecked
+                            ? 'bg-blue-500/10 border-blue-500/50 text-white shadow-[0_0_10px_rgba(59,130,246,0.1)]'
+                            : 'bg-[#0d0d14] border-white/5 hover:border-white/10 text-zinc-300 hover:bg-white/2'
                       }`}
                     >
-                      <div className="space-y-1.5 w-full">
+                      {/* Selection Toggle Area */}
+                      <div 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleSelection?.(att.id);
+                        }}
+                        className="flex items-center justify-center shrink-0 w-5 transition-colors"
+                      >
+                        {isChecked ? (
+                          <CheckCircle className="w-4.5 h-4.5 text-blue-500 fill-blue-500/20" />
+                        ) : (
+                          <Circle className="w-4.5 h-4.5 text-zinc-700 group-hover:text-zinc-500" />
+                        )}
+                      </div>
+
+                      <div className="space-y-1.5 flex-1 min-w-0">
                         {/* Row 1: Source icon + sender name + timestamp */}
                         <div className="flex items-center justify-between gap-1">
                           <span className="text-xs font-black text-zinc-100 flex items-center gap-1.5 truncate max-w-[190px]">

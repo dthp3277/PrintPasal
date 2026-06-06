@@ -11,11 +11,11 @@ import {
 import { Printer as PrinterType, PrintSettings, Attachment } from '../types';
 
 interface PrinterWorkflowProps {
-  attachment: Attachment;
+  attachments: Attachment[];
   onClose: () => void;
 }
 
-export default function PrinterWorkflow({ attachment, onClose }: PrinterWorkflowProps) {
+export default function PrinterWorkflow({ attachments, onClose }: PrinterWorkflowProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [printers, setPrinters] = useState<PrinterType[]>([]);
   const [selectedPrinter, setSelectedPrinter] = useState<PrinterType | null>(null);
@@ -33,6 +33,7 @@ export default function PrinterWorkflow({ attachment, onClose }: PrinterWorkflow
   const [newPrinterType, setNewPrinterType] = useState<'network' | 'usb'>('network');
 
   // Simulation state
+  const [currentFileIndex, setCurrentFileIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [printStatusText, setPrintStatusText] = useState('');
   const [isSimulating, setIsSimulating] = useState(false);
@@ -86,45 +87,51 @@ export default function PrinterWorkflow({ attachment, onClose }: PrinterWorkflow
   };
 
   const startPrinting = async () => {
-    if (!selectedPrinter) return;
+    if (!selectedPrinter || attachments.length === 0) return;
     
     setIsSimulating(true);
     setStep(4);
-    setProgress(10);
-    setPrintStatusText('Preparing document for transmission...');
     setError(null);
 
     try {
-      const resp = await fetch('/api/print', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filename: attachment.fileName,
-          printer: selectedPrinter.name
-        })
-      });
+      for (let i = 0; i < attachments.length; i++) {
+        const att = attachments[i];
+        setCurrentFileIndex(i);
+        setPrintStatusText(`Preparing [${i + 1}/${attachments.length}]: ${att.fileName}...`);
+        setProgress(0);
 
-      if (!resp.ok) {
-        const errText = await resp.text();
-        throw new Error(errText || 'Print request failed');
-      }
+        const resp = await fetch('/api/print', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: att.fileName,
+            printer: selectedPrinter.name
+          })
+        });
 
-      // Simulate some progress for UI feedback since actual spooling is fast
-      const messages = [
-        'Establishing connection with physical address...',
-        'Formatting and rendering document blocks...',
-        'Spooling page streams to buffer...',
-        'Transmission successful!'
-      ];
+        if (!resp.ok) {
+          const errText = await resp.text();
+          throw new Error(`Failed on file "${att.fileName}": ${errText || 'Print request failed'}`);
+        }
 
-      for (let i = 0; i < messages.length; i++) {
-        setPrintStatusText(messages[i]);
-        setProgress(25 * (i + 1));
-        await new Promise(r => setTimeout(r, 800));
+        // Simulate some progress for each file
+        const messages = [
+          'Establishing connection...',
+          'Formatting document...',
+          'Spooling page streams...',
+          'Transmission successful!'
+        ];
+
+        for (let j = 0; j < messages.length; j++) {
+          setPrintStatusText(`[${i + 1}/${attachments.length}] ${messages[j]}`);
+          setProgress(25 * (j + 1));
+          await new Promise(r => setTimeout(r, 400));
+        }
       }
       
       setProgress(100);
       setIsSimulating(false);
+      setPrintStatusText('All documents spooled successfully.');
     } catch (e: any) {
       setError(e.message);
       setIsSimulating(false);
@@ -148,7 +155,9 @@ export default function PrinterWorkflow({ attachment, onClose }: PrinterWorkflow
             </div>
             <div>
               <h3 className="font-sans font-extrabold text-white text-xs uppercase tracking-wider">Spool Production Wizard</h3>
-              <p className="text-[9px] text-zinc-500 font-mono tracking-wide uppercase">File Node: {attachment.fileName}</p>
+              <p className="text-[9px] text-zinc-500 font-mono tracking-wide uppercase">
+                {attachments.length === 1 ? `File Node: ${attachments[0].fileName}` : `Batch production: ${attachments.length} files`}
+              </p>
             </div>
           </div>
 
@@ -422,8 +431,8 @@ export default function PrinterWorkflow({ attachment, onClose }: PrinterWorkflow
                   <div>
                     <h5 className="font-bold text-amber-400 text-xs uppercase tracking-wider mb-0.5">Spool Audit Protocol</h5>
                     <p className="text-[11px] text-zinc-400 leading-normal">
-                      Verified output node: <strong className="text-white font-semibold">{selectedPrinter?.name || 'NONE'}</strong> ({selectedPrinter?.type || 'N/A'}). 
-                      Job size contains <strong className="text-white font-semibold">{settings.copies} bundle copies</strong> formatted in <strong className="text-white font-semibold">{settings.colorMode === 'color' ? 'Full Spectra Color' : 'Tonal Monochromatic'}</strong>.
+                      Verified output node: <strong className="text-white font-semibold">{selectedPrinter?.name || 'NONE'}</strong>. 
+                      Job contains <strong className="text-white font-semibold">{attachments.length} file{attachments.length > 1 ? 's' : ''}</strong> with <strong className="text-white font-semibold">{settings.copies} bundle copies each</strong> formatted in <strong className="text-white font-semibold">{settings.colorMode === 'color' ? 'Full Spectra Color' : 'Tonal Monochromatic'}</strong>.
                     </p>
                   </div>
                 </div>
@@ -438,7 +447,7 @@ export default function PrinterWorkflow({ attachment, onClose }: PrinterWorkflow
                       <div className="flex items-center gap-1.5 border-b border-white/5 pb-1">
                         <FileText className="w-3.5 h-3.5 text-blue-400" />
                         <span className="text-[7px] font-mono font-bold uppercase overflow-hidden whitespace-nowrap tracking-wider text-zinc-300">
-                          {attachment.fileName.slice(0, 15)}
+                          {attachments.length === 1 ? attachments[0].fileName.slice(0, 15) : `${attachments.length} FILES BATCH`}
                         </span>
                       </div>
                       <div className="text-[6px] text-zinc-500 leading-normal font-sans italic p-1 border-t border-b border-dashed border-white/5 uppercase select-none text-center">
@@ -474,23 +483,25 @@ export default function PrinterWorkflow({ attachment, onClose }: PrinterWorkflow
                       Go Back & Retry
                     </button>
                   </div>
-                ) : progress < 100 ? (
+                ) : progress < 100 || currentFileIndex < attachments.length - 1 ? (
                   <div className="space-y-4 max-w-sm mx-auto">
                     <div className="relative mx-auto h-14 w-14 rounded-full border border-blue-500/20 bg-blue-500/10 flex items-center justify-center shadow-lg">
                       <RefreshCw className="w-5 h-5 text-blue-400 animate-spin" />
                     </div>
                     <div>
-                      <h4 className="font-bold text-white text-sm uppercase tracking-wider">Transmitting Spool Frame...</h4>
-                      <p className="text-[10px] text-zinc-500 font-mono mt-1 leading-normal">{printStatusText}</p>
+                      <h4 className="font-bold text-white text-sm uppercase tracking-wider">Transmitting Batch...</h4>
+                      <p className="text-[10px] text-zinc-500 font-mono mt-1 leading-normal h-8">{printStatusText}</p>
                     </div>
                     {/* Progress Slider */}
                     <div className="relative h-2 w-full bg-white/5 rounded-full overflow-hidden border border-white/5">
                       <div 
                         className="absolute inset-y-0 left-0 bg-blue-600 transition-all duration-150 shadow-[0_0_10px_rgba(59,130,246,0.8)]"
-                        style={{ width: `${progress}%` }}
+                        style={{ width: `${((currentFileIndex + (progress / 100)) / attachments.length) * 100}%` }}
                       />
                     </div>
-                    <span className="block font-mono text-xs font-bold text-zinc-300">{progress}% spooled</span>
+                    <span className="block font-mono text-xs font-bold text-zinc-300">
+                      Overall Progress: {Math.round(((currentFileIndex + (progress / 100)) / attachments.length) * 100)}%
+                    </span>
                   </div>
                 ) : (
                   <div className="space-y-4 max-w-sm mx-auto">
@@ -500,17 +511,17 @@ export default function PrinterWorkflow({ attachment, onClose }: PrinterWorkflow
                     </div>
                     <div>
                       <h4 className="font-bold text-white text-sm uppercase tracking-wider flex items-center justify-center gap-1.5">
-                        Spool Job Complete
+                        Batch Job Complete
                       </h4>
                       <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">
-                        Your direct layout package was successfully released to node target <strong className="text-white">{selectedPrinter?.name}</strong>. Production complete.
+                        All <strong className="text-white">{attachments.length} files</strong> were successfully released to node target <strong className="text-white">{selectedPrinter?.name}</strong>.
                       </p>
                     </div>
                     <div className="grid grid-cols-2 gap-2 max-w-xs mx-auto border-t border-white/5 pt-4 text-[10px] font-mono text-zinc-500 text-left">
                       <div>Node Metric: <span className="text-zinc-300">ONLINE</span></div>
-                      <div>Format Type: <span className="text-zinc-300 font-bold uppercase">{attachment.fileType}</span></div>
+                      <div>Batch Size: <span className="text-zinc-300 font-bold uppercase">{attachments.length} FILES</span></div>
                       <div>Spanned: <span className="text-zinc-300">1 / 1 Node</span></div>
-                      <div>Copies Out: <span className="text-zinc-300">{settings.copies}</span></div>
+                      <div>Copies Out: <span className="text-zinc-300">{settings.copies} EACH</span></div>
                     </div>
                   </div>
                 )}
