@@ -1,8 +1,10 @@
 package printer
 
 import (
-	"encoding/json"
+	"bufio"
+	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -13,85 +15,190 @@ import (
 type Printer struct {
 	Name          string `json:"name"`
 	PrinterStatus uint32 `json:"status"`
-	Type          uint32 `json:"type"`
+	Type          string `json:"type"`
 	PortName      string `json:"port_name"`
+	IsShared      bool   `json:"is_shared"`
+	IsDefault     bool   `json:"is_default"`
 }
 
-// List returns a list of available printers on the system.
+// List returns available printers using WMI in a way compatible with PowerShell 2.0 (Windows 7).
 func List() ([]Printer, error) {
 	if runtime.GOOS != "windows" {
 		return nil, fmt.Errorf("printer list only supported on windows")
 	}
 
-	cmd := exec.Command("powershell", "-Command", "Get-Printer | Select-Object Name, PrinterStatus, Type, PortName | ConvertTo-Json")
+	script := `Get-WmiObject -Class Win32_Printer | ForEach-Object { 
+		write-host ("{0}|{1}|{2}|{3}|{4}" -f $_.Name, $_.PrinterStatus, $_.Shared, $_.PortName, $_.Default) 
+	}`
+	
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("failed to list printers: %w", err)
+		return nil, fmt.Errorf("printer discovery failed: %w", err)
 	}
 
 	var printers []Printer
-	// Handle single object vs array from ConvertTo-Json
-	if err := json.Unmarshal(output, &printers); err != nil {
-		var single Printer
-		if err := json.Unmarshal(output, &single); err != nil {
-			return nil, fmt.Errorf("failed to parse printer JSON: %w", err)
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Split(line, "|")
+		if len(parts) < 5 {
+			continue
 		}
-		printers = append(printers, single)
+
+		p := Printer{
+			Name:      parts[0],
+			PortName:  parts[3],
+			IsShared:  parts[2] == "True",
+			IsDefault: parts[4] == "True",
+			Type:      "local",
+		}
+		
+		if strings.HasPrefix(p.PortName, "IP_") || strings.HasPrefix(p.PortName, "\\\\") {
+			p.Type = "network"
+		} else if strings.Contains(strings.ToLower(p.PortName), "usb") {
+			p.Type = "usb"
+		}
+
+		printers = append(printers, p)
 	}
 
 	return printers, nil
 }
 
-// Print sends a file to the specified printer.
-func Print(filePath, printerName string) error {
-	if runtime.GOOS != "windows" {
-		return fmt.Errorf("printing only supported on windows")
-	}
+// Print sends a file to the printer.
+const (
+	colorReset  = "\033[0m"
+	colorBlue   = "\033[34m"
+	colorCyan   = "\033[36m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorRed    = "\033[31m"
+)
 
-	ext := strings.ToLower(filepath.Ext(filePath))
+func logPrinter(msg string, color string) {
+	fmt.Printf("%s[PRINTER] %s%s\n", color, msg, colorReset)
+}
+
+// Print sends a file to the printer.
+func Print(filePath, printerName string) error {
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
 		return err
 	}
 
-	// If a specific printer is requested, set it as default temporarily.
-	// This is the most compatible way for "low-resource" apps like mspaint/wordpad.
-	var oldDefault string
-	if printerName != "" {
-		out, err := exec.Command("powershell", "-Command", "(Get-WmiObject -Query \"Select * from Win32_Printer Where Default = True\").Name").Output()
-		if err == nil {
-			oldDefault = strings.TrimSpace(string(out))
+	logPrinter(fmt.Sprintf("Job Initialized: %s -> %s", filepath.Base(absPath), printerName), colorCyan)
+
+	ext := strings.ToLower(filepath.Ext(absPath))
+	if ext == ".pdf" || ext == ".jpg" || ext == ".jpeg" || ext == ".png" {
+		return printWithSumatra(absPath, printerName)
+	}
+	return printWithShellVerb(absPath, printerName)
+}
+
+func OpenNative(filePath string) error {
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return err
+	}
+	return exec.Command("cmd", "/c", "start", "", absPath).Run()
+}
+
+func PreparePreview(filePath string) (string, error) {
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return "", err
+	}
+	ext := strings.ToLower(filepath.Ext(absPath))
+	if ext == ".pdf" || ext == ".jpg" || ext == ".jpeg" || ext == ".png" {
+		return absPath, nil
+	}
+	if ext == ".docx" || ext == ".doc" {
+		cacheDir := "previews"
+		os.MkdirAll(cacheDir, 0755)
+		pdfPath := filepath.Join(cacheDir, filepath.Base(absPath)+".preview.pdf")
+		if _, err := os.Stat(pdfPath); err == nil {
+			return pdfPath, nil
 		}
-		
-		err = exec.Command("powershell", "-Command", fmt.Sprintf("(New-Object -ComObject WScript.Network).SetDefaultPrinter('%s')", printerName)).Run()
-		if err != nil {
-			return fmt.Errorf("failed to set default printer to %s: %w", printerName, err)
+		if err := convertWordToPdf(absPath, pdfPath); err != nil {
+			return "", err
 		}
-		
-		// Restore default printer after we're done (or at least try to)
-		defer func() {
-			if oldDefault != "" {
-				exec.Command("powershell", "-Command", fmt.Sprintf("(New-Object -ComObject WScript.Network).SetDefaultPrinter('%s')", oldDefault)).Run()
-			}
-		}()
+		return pdfPath, nil
+	}
+	return "", fmt.Errorf("unsupported preview format")
+}
+
+func printWithSumatra(filePath, printerName string) error {
+	sumatraPath, _ := filepath.Abs(filepath.Join("bin", "SumatraPDF.exe"))
+	if _, err := os.Stat(sumatraPath); err != nil {
+		logPrinter("SumatraPDF not found in bin/, falling back to Shell Verb", colorYellow)
+		return printWithShellVerb(filePath, printerName)
 	}
 
-	var cmd *exec.Cmd
-	switch ext {
-	case ".jpg", ".jpeg", ".png", ".bmp":
-		// mspaint /p is very reliable for images
-		cmd = exec.Command("mspaint", "/p", absPath)
-	case ".pdf", ".doc", ".docx", ".xls", ".xlsx":
-		// Start-Process -Verb Print uses the registered handler (Edge, Word, etc.)
-		cmd = exec.Command("powershell", "-Command", fmt.Sprintf("Start-Process -FilePath '%s' -Verb Print", absPath))
-	default:
-		// Fallback for text files
-		cmd = exec.Command("powershell", "-Command", fmt.Sprintf("Start-Process -FilePath '%s' -Verb Print", absPath))
-	}
+	absFile, _ := filepath.Abs(filePath)
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to print %s: %w", filePath, err)
-	}
+	logPrinter("Engine: SumatraPDF (Direct Call)", colorBlue)
+	logPrinter(fmt.Sprintf("Target Printer: [%s]", printerName), colorCyan)
+	
+	// Direct execution is much safer for handling slashes and spaces.
+	// Go handles the escaping for the OS automatically.
+	cmd := exec.Command(sumatraPath, 
+		"-print-to", printerName, 
+		"-print-settings", "fit", 
+		"-silent", 
+		absFile,
+	)
 
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		logPrinter(fmt.Sprintf("Sumatra Direct Call failed: %v, Output: %s", err, string(out)), colorRed)
+		logPrinter("Trying Shell fallback...", colorYellow)
+		return printWithShellVerb(filePath, printerName)
+	}
+	
+	logPrinter("SumatraPDF reported success. Check print queue now.", colorGreen)
 	return nil
+}
+
+func printWithShellVerb(filePath, printerName string) error {
+	logPrinter("Engine: Windows Shell (Print Verb)", colorBlue)
+	escapedPrinter := strings.ReplaceAll(printerName, "'", "''")
+	escapedFile := strings.ReplaceAll(filePath, "'", "''")
+
+	// 1. Set Default (COM method)
+	logPrinter(fmt.Sprintf("Setting default printer to: %s", printerName), colorCyan)
+	setCmd := fmt.Sprintf(`(New-Object -ComObject WScript.Network).SetDefaultPrinter('%s')`, escapedPrinter)
+	out, err := exec.Command("powershell", "-NoProfile", "-Command", setCmd).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("com-set-default error: %v, output: %s", err, string(out))
+	}
+
+	// 2. Print Verb
+	logPrinter(fmt.Sprintf("Triggering 'Print' verb for: %s", filepath.Base(filePath)), colorCyan)
+	printCmd := fmt.Sprintf(`Start-Process -FilePath "%s" -Verb Print`, escapedFile)
+	out, err = exec.Command("powershell", "-NoProfile", "-Command", printCmd).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("print-verb error: %v, output: %s", err, string(out))
+	}
+
+	logPrinter("Shell Print command enqueued", colorGreen)
+	return nil
+}
+
+func convertWordToPdf(sourcePath, targetPath string) error {
+	escapedSource := strings.ReplaceAll(sourcePath, "'", "''")
+	escapedTarget := strings.ReplaceAll(targetPath, "'", "''")
+
+	script := fmt.Sprintf(`
+		$word = New-Object -ComObject Word.Application
+		$word.Visible = $false
+		try {
+			$doc = $word.Documents.Open('%s')
+			$doc.SaveAs([ref]'%s', [ref]17)
+			$doc.Close()
+		} finally {
+			$word.Quit()
+		}
+	`, escapedSource, escapedTarget)
+	return exec.Command("powershell", "-NoProfile", "-Command", script).Run()
 }

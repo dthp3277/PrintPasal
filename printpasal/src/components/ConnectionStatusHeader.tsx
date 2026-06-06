@@ -218,7 +218,12 @@ export default function ConnectionStatusHeader({
 
       <ConnectionModal
         isOpen={connectTarget !== null}
-        onClose={() => setConnectTarget(null)}
+        onClose={() => {
+          if (connectTarget === 'whatsapp' && waInfo.status === 'pending') {
+            onTerminateWA();
+          }
+          setConnectTarget(null);
+        }}
         waInfo={waInfo}
         gmailInfo={gmailInfo}
         target={connectTarget}

@@ -1,21 +1,33 @@
-# Secrets
-token.json
+# Specific files and directories
+wa-session/
+downloads/
+logs/
+bin/
 credentials.json
+token.json
 config.json
 
-# Binaries
-bin/
+# Go binaries and temporary files
 *.exe
 *.exe~
+hello
+printshop
 
-# Logs
-logs/
-*.log
-
-# WhatsApp session
-wa-session/
-
-# Frontend
-printpasal/node_modules/
+# Node.js
+node_modules/
 printpasal/dist/
+printpasal/node_modules/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment variables and secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.secret
 printpasal/.env

@@ -1,4 +1,4 @@
-# PrintShop — File Downloader
+# Print Pasal — File Downloader + Printer
 
 Automatically downloads and renames files sent to your Gmail or WhatsApp.
 Saves everything to the `downloads/` folder, ready to print.
@@ -27,7 +27,7 @@ Examples:
 
 ---
 
-## One-time setup
+## Steps to Setup
 
 ### 1. Install Go
 
@@ -45,7 +45,15 @@ whatsmeow stores sessions in SQLite which needs a C compiler.
 Download **TDM-GCC** (free, simple): https://jmeubank.github.io/tdm-gcc/
 Run the installer, keep all defaults.
 
-### 3. Get the code
+### 3. Setup SumatraPDF (for silent printing)
+
+The app uses SumatraPDF to handle silent printing for PDFs and images.
+
+1. Create a folder named `bin` in the project root.
+2. Download **SumatraPDF Portable (64-bit)** from: https://www.sumatrapdfreader.org/download-free-pdf-viewer
+3. Move the downloaded `.exe` into the `bin/` folder and rename it exactly to `SumatraPDF.exe`.
+
+### 4. Get the code
 
 Put the printshop folder anywhere, e.g. `C:\PrintShop\`
 
@@ -55,18 +63,18 @@ go mod tidy
 ```
 This downloads all dependencies (~30 seconds).
 
-### 4. Set up Gmail (10 minutes, done once)
+### 5. Set up Gmail Credentials
 
-**4a. Create a Google Cloud project**
+**5a. Create a Google Cloud project**
 1. Go to https://console.cloud.google.com
 2. Top bar → "Select a project" → "New Project"
 3. Name: `PrintShop` → Create
 
-**4b. Enable Gmail API**
+**5b. Enable Gmail API**
 1. Go to "APIs & Services" → "Library"
 2. Search "Gmail API" → Enable
 
-**4c. Create OAuth credentials**
+**5c. Create OAuth credentials**
 1. "APIs & Services" → "Credentials"
 2. "Create Credentials" → "OAuth client ID"
 3. Application type: **Desktop app**
@@ -74,11 +82,11 @@ This downloads all dependencies (~30 seconds).
 5. Click the download ⬇ button → save as `credentials.json`
 6. Move `credentials.json` into the PrintShop folder
 
-**4d. Configure consent screen** (if asked)
+**5d. Configure consent screen** (if asked)
 1. "OAuth consent screen" → External → Fill in app name `PrintShop`
 2. Add your Gmail as a test user
 
-**4e. First run authorisation**
+**5e. First run authorisation**
 Run the app once:
 ```
 go run ./cmd/printshop
@@ -86,9 +94,9 @@ go run ./cmd/printshop
 It will print a URL. Open it in your browser, sign in, click Allow,
 copy the code, paste it back into the terminal. Done.
 
-### 5. WhatsApp setup
+### 6. WhatsApp setup
 
-No extra setup. When you first run the app, it shows a QR code.
+No extra setup. Once app runs, you can connect Whatsapp via the Connection Button.
 Open WhatsApp on your phone → Linked Devices → Link a Device → scan.
 The session is saved in `wa-session/` — you won't be asked again.
 
