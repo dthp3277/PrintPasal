@@ -1,0 +1,14 @@
+{
+  "downloads_dir": "downloads",
+  "logs_dir": "logs",
+  "gmail": {
+    "credentials_file": "credentials.json",
+    "token_file": "token.json",
+    "poll_interval_seconds": 30,
+    "enabled": true
+  },
+  "whatsapp": {
+    "session_dir": "wa-session",
+    "enabled": true
+  }
+}

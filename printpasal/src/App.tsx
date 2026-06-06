@@ -42,6 +42,7 @@ export default function App() {
           const ext = (item.filename || '').split('.').pop()?.toLowerCase();
           const fileType: Attachment['fileType'] = ext === 'pdf' ? 'pdf'
             : ['jpg','jpeg','png','gif','webp','bmp'].includes(ext || '') ? 'image'
+            : ['doc','docx'].includes(ext || '') ? 'document'
             : 'other';
           return {
             id: `file-${item.filename}-${index}`,
@@ -100,6 +101,9 @@ export default function App() {
                 ...prev,
                 status: p.whatsapp,
                 qrCode: p.wa_qr !== undefined ? p.wa_qr : prev.qrCode,
+                qrPhase: p.wa_qr_phase !== undefined ? p.wa_qr_phase : prev.qrPhase,
+                isVerifying: p.wa_verifying === 'true',
+                pairCode: p.wa_pair_code !== undefined ? p.wa_pair_code : prev.pairCode,
                 account: p.whatsapp_account || p.wa_number || prev.account
               }));
             }
@@ -127,6 +131,7 @@ export default function App() {
             const ext = filename.split('.').pop()?.toLowerCase();
             const fileType: Attachment['fileType'] = ext === 'pdf' ? 'pdf'
               : ['jpg','jpeg','png','gif','webp','bmp'].includes(ext || '') ? 'image'
+              : ['doc','docx'].includes(ext || '') ? 'document'
               : 'other';
             const newAtt: Attachment = {
               id: `file-${filename}-${Date.now()}`,
@@ -168,13 +173,13 @@ export default function App() {
 
       socket.onerror = (e) => {
         console.log('[WebSocket] Passive offline mode - Go backend connection failed, using diagnostic simulator.');
-        setWaInfo(prev => ({ ...prev, status: 'disconnected' }));
+        setWaInfo(prev => ({ ...prev, status: 'disconnected', qrCode: undefined }));
         setGmailInfo(prev => ({ ...prev, status: 'disconnected' }));
       };
 
       socket.onclose = () => {
         console.log('[WebSocket] Link closed');
-        setWaInfo(prev => ({ ...prev, status: 'disconnected' }));
+        setWaInfo(prev => ({ ...prev, status: 'disconnected', qrCode: undefined }));
         setGmailInfo(prev => ({ ...prev, status: 'disconnected' }));
       };
 
@@ -214,6 +219,27 @@ export default function App() {
     setAttachments(prev =>
       prev.map(att => att.id === id ? { ...att, unread: false } : att)
     );
+  };
+
+  const handleClearFiles = () => {
+    if (!window.confirm("Are you sure you want to clear ALL files from storage? This cannot be undone.")) {
+      return;
+    }
+
+    fetch('/api/files/clear', { method: 'POST' })
+      .then(res => {
+        if (res.ok) {
+          setAttachments([]);
+          setSelectedAttachment(null);
+          showTempNotification("Storage cleared successfully.");
+        } else {
+          showTempNotification("Failed to clear storage.");
+        }
+      })
+      .catch(err => {
+        console.error("Error clearing storage:", err);
+        showTempNotification("Connection error while clearing storage.");
+      });
   };
 
   // Triggers manual mock WhatsApp influx
@@ -339,6 +365,7 @@ export default function App() {
             onSelectAttachment={handleSelectAttachment}
             onToggleUnread={handleToggleUnread}
             isSyncing={isGmailSyncing}
+            onClearFiles={handleClearFiles}
             onRefresh={() => {
               setIsGmailSyncing(true);
               sendWsCommand('refresh', 'gmail');
@@ -363,8 +390,8 @@ export default function App() {
           {/* Quick instructions and debug terminal bar at the very footer */}
           <div className="bg-[#0b0b10] border-t border-white/5 px-6 py-3.5 flex flex-col sm:flex-row sm:items-center justify-end gap-3 text-xs text-zinc-500">
             
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {/* WhatsApp Simulator Button */}
+            {/*<div className="flex flex-wrap items-center gap-2 shrink-0">
+        
               <button
                 id="btn-simulate-recv"
                 type="button"
@@ -375,7 +402,7 @@ export default function App() {
                 <span>Simulate WhatsApp Influx</span>
               </button>
 
-              {/* Gmail Simulator Button */}
+     
               <button
                 id="btn-simulate-sync"
                 type="button"
@@ -385,7 +412,7 @@ export default function App() {
                 <Plus className="w-3.5 h-3.5" />
                 <span>Simulate Gmail Arrival</span>
               </button>
-            </div>
+            </div>*/}
           </div>
         </div>
 

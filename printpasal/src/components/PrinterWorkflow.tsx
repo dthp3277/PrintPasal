@@ -50,10 +50,10 @@ export default function PrinterWorkflow({ attachment, onClose }: PrinterWorkflow
         const mappedPrinters = data.map((p: any) => ({
           id: p.name,
           name: p.name,
-          type: p.port_name.startsWith('IP_') ? 'network' : 'usb',
+          type: p.type,
           status: p.status === 0 ? 'ready' : 'offline',
           location: p.port_name,
-          isDefault: false
+          isDefault: p.is_default
         }));
         setPrinters(mappedPrinters);
         if (mappedPrinters.length > 0) {

@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   ZoomIn, ZoomOut, RotateCw, Printer, Download, Eye, 
-  FileCheck, ShieldAlert, ChevronLeft, ChevronRight, FileText, Search, X, ArrowUp, ArrowDown
+  FileCheck, ShieldAlert, ChevronLeft, ChevronRight, FileText, Search, X, ArrowUp, ArrowDown, RefreshCw
 } from 'lucide-react';
 import { Attachment } from '../types';
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -40,6 +40,8 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
   const [searchMatchIdx, setSearchMatchIdx] = useState(0);
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -56,7 +58,46 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
     setSearchResults([]);
     setSearchMatchIdx(0);
     setPdfDoc(null);
+    setPreviewUrl(null);
+
+    if (attachment) {
+      if (attachment.fileType === 'pdf' || attachment.fileType === 'image') {
+        setPreviewUrl(attachment.fileUrl);
+      } else if (attachment.fileType === 'document') {
+        fetchPreview(attachment.fileName);
+      }
+    }
   }, [attachment]);
+
+  const fetchPreview = async (filename: string) => {
+    setIsLoadingPreview(true);
+    try {
+      const resp = await fetch(`/api/preview?filename=${encodeURIComponent(filename)}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        setPreviewUrl(data.url);
+      } else {
+        setPdfError('Failed to generate preview for this document.');
+      }
+    } catch (e) {
+      setPdfError('Error connecting to preview engine.');
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  const handleOpenInApp = async () => {
+    if (!attachment) return;
+    try {
+      await fetch('/api/open-in-app', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: attachment.fileName })
+      });
+    } catch (e) {
+      console.error('Failed to open in app', e);
+    }
+  };
 
   // Sync page input display when page changes externally (scroll)
   useEffect(() => {
@@ -181,7 +222,7 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
 
   // ── Render PDF block ──────────────────────────────────────────────────────
 
-  const renderPdf = () => (
+  const renderPdf = (url: string) => (
     <div className="flex-1 flex flex-col bg-[#1e1e1f] rounded-xl border border-white/5 overflow-hidden min-h-[450px]">
       {/* Toolbar */}
       <div className="bg-[#2a2a2e] px-3 py-1.5 border-b border-[#1c1c1f] flex flex-wrap items-center gap-2 text-xs text-zinc-300">
@@ -296,11 +337,11 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
         {pdfError ? (
           <div className="text-red-400 flex flex-col items-center mt-10">
             <ShieldAlert className="w-10 h-10 mb-2" />
-            <p>Error loading PDF: {pdfError}</p>
+            <p>{pdfError}</p>
           </div>
         ) : (
           <Document
-            file={attachment.fileUrl}
+            file={url}
             onLoadSuccess={({ numPages: n, ...doc }) => {
               setNumPages(n);
               setPdfDoc(doc);
@@ -338,6 +379,30 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
   );
 
   const getPreviewContent = () => {
+    if (isLoadingPreview) {
+      return (
+        <div className="flex-grow flex flex-col items-center justify-center bg-white/2 rounded-xl border border-dashed border-white/10 p-8 text-center min-h-[400px]">
+          <RefreshCw className="w-12 h-12 text-blue-500 animate-spin mb-3" />
+          <h4 className="text-white font-bold text-sm">Normalizing Document...</h4>
+          <p className="text-xs text-zinc-400 mt-1 max-w-xs">
+            Preparing a high-fidelity preview for this Office document. This may take a few seconds.
+          </p>
+        </div>
+      );
+    }
+
+    if (!previewUrl && attachment.fileType === 'document') {
+        return (
+          <div className="flex-grow flex flex-col items-center justify-center bg-white/2 rounded-xl border border-dashed border-white/10 p-8 text-center min-h-[400px]">
+            <FileText className="w-12 h-12 text-zinc-600 mb-3" />
+            <h4 className="text-white font-bold text-sm">Preview Generation Failed</h4>
+            <p className="text-xs text-zinc-400 mt-1 max-w-xs">
+              We couldn't generate a preview for this document. You can still try to print it or open it in Word.
+            </p>
+          </div>
+        );
+    }
+
     switch (attachment.fileType) {
       case 'image':
         return (
@@ -347,7 +412,7 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
               style={{ transform: `rotate(${rotation}deg) scale(${zoom / 100})`, maxHeight: '80%', maxWidth: '80%' }}
             >
               <img
-                src={attachment.fileUrl}
+                src={previewUrl || attachment.fileUrl}
                 alt={attachment.fileName}
                 className="rounded-lg shadow-2xl max-h-[450px] max-w-full object-contain pointer-events-none border border-white/5"
                 referrerPolicy="no-referrer"
@@ -364,7 +429,8 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
         );
 
       case 'pdf':
-        return renderPdf();
+      case 'document':
+        return previewUrl ? renderPdf(previewUrl) : null;
 
       default:
         return (
@@ -436,6 +502,14 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
               Reset
             </button>
           </div>
+
+          <button
+            onClick={handleOpenInApp}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-300 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span>Open in App</span>
+          </button>
 
           <button
             onClick={onOpenPrintWizard}

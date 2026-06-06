@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
+	"time"
 
 	"printshop/internal/config"
 	"printshop/internal/gmail"
@@ -62,28 +64,85 @@ func main() {
 	// 5. WhatsApp (Run in background)
 	if cfg.WhatsApp.Enabled {
 		go func() {
-			waClient, err := whatsapp.New(ctx, cfg, log, webServer.Hub)
-			if err != nil {
-				log.Errorf("Main", "WhatsApp init failed: %v", err)
-				return
+			var waClient *whatsapp.Client
+			var sessionCtx context.Context
+			var cancelSession context.CancelFunc
+			var mu sync.Mutex
+
+			initClient := func() {
+				mu.Lock()
+				if cancelSession != nil { cancelSession() }
+				if waClient != nil { waClient.Close() }
+
+				time.Sleep(200 * time.Millisecond) // Release DB
+
+				sessionCtx, cancelSession = context.WithCancel(ctx)
+				var err error
+				waClient, err = whatsapp.New(sessionCtx, cfg, log, webServer.Hub)
+				if err != nil {
+					log.Errorf("Main", "WhatsApp init failed: %v", err)
+					mu.Unlock()
+					return
+				}
+				
+				// Take a local reference to the client and unlock 
+				// before starting the blocking connection loop.
+				activeClient := waClient
+				mu.Unlock()
+
+				if err := activeClient.Connect(sessionCtx); err != nil {
+					log.Errorf("Main", "WhatsApp connect failed: %v", err)
+				}
 			}
-			
+
 			webServer.OnWhatsAppTerminate = func() {
+				mu.Lock()
+				defer mu.Unlock()
 				log.Info("Main", "Terminating WhatsApp session...")
-				waClient.Disconnect()
+				if cancelSession != nil { cancelSession() }
+				if waClient != nil {
+					waClient.Logout(context.Background())
+					waClient = nil
+				}
+				time.Sleep(300 * time.Millisecond)
 				os.RemoveAll(cfg.WhatsApp.SessionDir)
+				
+				webServer.Hub.Broadcast(web.Message{Type: "status", Payload: map[string]string{
+					"whatsapp": "disconnected",
+					"wa_qr":    "",
+					"wa_pair_code": "",
+				}})
 			}
 			
 			webServer.OnWhatsAppConnect = func() {
-				log.Info("Main", "Connecting WhatsApp session...")
-				go waClient.Connect(ctx)
+				log.Info("Main", "Linking request received...")
+				go initClient()
 			}
 
-			if err := waClient.Connect(ctx); err != nil {
-				log.Errorf("Main", "WhatsApp connect failed: %v", err)
+			webServer.OnWhatsAppConnectPhone = func(phone string) {
+				log.Infof("Main", "Phone pairing request for %s", phone)
+				go func() {
+					mu.Lock()
+					client := waClient
+					mu.Unlock()
+
+					if client != nil {
+						code, err := client.PairPhone(sessionCtx, phone)
+						if err != nil {
+							log.Errorf("Main", "Phone pairing failed: %v", err)
+						} else {
+							webServer.Hub.Broadcast(web.Message{Type: "status", Payload: map[string]string{
+								"whatsapp": "pending",
+								"wa_pair_code": code,
+							}})
+						}
+					}
+				}()
 			}
-			defer waClient.Disconnect()
+
+			go initClient()
 			<-ctx.Done()
+			if cancelSession != nil { cancelSession() }
 		}()
 	}
 

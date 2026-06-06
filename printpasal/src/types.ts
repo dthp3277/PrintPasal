@@ -20,6 +20,9 @@ export interface ServiceInfo {
   status: ServiceStatus;
   account?: string;   // phone number (WA) or email address (Gmail)
   qrCode?: string;    // base64 QR string when status === 'pending' for WA
+  qrPhase?: string;   // '1', '2', etc.
+  isVerifying?: boolean;
+  pairCode?: string;  // 8-character code for phone pairing
   connectedSince?: string;
 }
 

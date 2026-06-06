@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Search, FileText, Image as ImageIcon, Calendar, User, MessageSquare, Inbox, Mail, Paperclip, RefreshCw } from 'lucide-react';
+import { Search, FileText, Image as ImageIcon, Calendar, User, MessageSquare, Inbox, Mail, Paperclip, RefreshCw, Trash2 } from 'lucide-react';
 import { Attachment, FileType, SourceType } from '../types';
 
 interface AttachmentListProps {
@@ -14,6 +14,7 @@ interface AttachmentListProps {
   onToggleUnread?: (id: string) => void;
   isSyncing?: boolean;
   onRefresh?: () => void;
+  onClearFiles?: () => void;
 }
 
 export default function AttachmentList({
@@ -22,7 +23,8 @@ export default function AttachmentList({
   onSelectAttachment,
   onToggleUnread,
   isSyncing,
-  onRefresh
+  onRefresh,
+  onClearFiles
 }: AttachmentListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | FileType>('all');
@@ -114,17 +116,30 @@ export default function AttachmentList({
           </span>
         </div>
         
-        {onRefresh && (
-          <button 
-            onClick={onRefresh}
-            disabled={isSyncing}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-white/10 transition-colors border border-white/5 bg-white/5 text-zinc-400 hover:text-white"
-            title="Fetch Latest Files"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
-            <span className="text-[9px] font-bold uppercase tracking-wider">{isSyncing ? 'Syncing...' : 'Refresh'}</span>
-          </button>
-        )}
+        <div className="flex items-center gap-1.5">
+          {onClearFiles && attachments.length > 0 && (
+            <button 
+              onClick={onClearFiles}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-rose-500/10 transition-colors border border-white/5 bg-white/5 text-zinc-400 hover:text-rose-400"
+              title="Clear All Files"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className="text-[9px] font-bold uppercase tracking-wider">Clear Storage</span>
+            </button>
+          )}
+
+          {onRefresh && (
+            <button 
+              onClick={onRefresh}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-white/10 transition-colors border border-white/5 bg-white/5 text-zinc-400 hover:text-white"
+              title="Fetch Latest Files"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
+              <span className="text-[9px] font-bold uppercase tracking-wider">{isSyncing ? 'Syncing...' : 'Refresh'}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Search Header and FileType Tabs */}

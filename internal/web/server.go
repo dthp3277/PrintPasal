@@ -141,10 +141,11 @@ type Server struct {
 	Hub *Hub
 	log *store.Logger
 	cfg *config.Config
-	
+
 	OnWhatsAppTerminate func()
 	OnGmailTerminate    func()
 	OnWhatsAppConnect   func()
+	OnWhatsAppConnectPhone func(phone string)
 	OnGmailConnect      func()
 	OnGmailSync         func()
 	OnGmailGetAuthURL   func() (string, error)
@@ -186,18 +187,26 @@ func (s *Server) Start(addr string) error {
 
 	mux := http.NewServeMux()
 	mux.Handle("/ws", s.Hub)
-	
+
 	downloadsDir := resolve("downloads", s.cfg.DownloadsDir)
 	mux.Handle("/downloads/", http.StripPrefix("/downloads/", http.FileServer(http.Dir(downloadsDir))))
-	
+
+	previewsDir := resolve("previews", "previews")
+	mux.Handle("/previews/", http.StripPrefix("/previews/", http.FileServer(http.Dir(previewsDir))))
+
 	staticDir := resolve("static", filepath.Join("printpasal", "dist"))
 	mux.Handle("/", http.FileServer(http.Dir(staticDir)))
-	
+
 	mux.HandleFunc("/api/files", func(w http.ResponseWriter, r *http.Request) {
 		s.log.Infof("Web", "API Call: %s", r.URL.Path)
 		s.handleFiles(w, r)
 	})
-	
+
+	mux.HandleFunc("/api/files/clear", func(w http.ResponseWriter, r *http.Request) {
+		s.log.Infof("Web", "API Call: %s", r.URL.Path)
+		s.handleClearDownloads(w, r)
+	})
+
 	mux.HandleFunc("/api/terminate/", func(w http.ResponseWriter, r *http.Request) {
 		s.log.Infof("Web", "API Call: %s", r.URL.Path)
 		if strings.HasSuffix(r.URL.Path, "whatsapp") {
@@ -209,7 +218,9 @@ func (s *Server) Start(addr string) error {
 
 	mux.HandleFunc("/api/connect/", func(w http.ResponseWriter, r *http.Request) {
 		s.log.Infof("Web", "API Call: %s", r.URL.Path)
-		if strings.HasSuffix(r.URL.Path, "whatsapp") {
+		if strings.HasSuffix(r.URL.Path, "whatsapp/phone") {
+			s.handleConnectWhatsAppPhone(w, r)
+		} else if strings.HasSuffix(r.URL.Path, "whatsapp") {
 			s.handleConnectWhatsApp(w, r)
 		} else {
 			s.handleConnectGmail(w, r)
@@ -242,6 +253,26 @@ func (s *Server) Start(addr string) error {
 		w.WriteHeader(200)
 	})
 
+	mux.HandleFunc("/api/printers", func(w http.ResponseWriter, r *http.Request) {
+		s.log.Infof("Web", "API Call: %s", r.URL.Path)
+		s.handlePrinters(w, r)
+	})
+
+	mux.HandleFunc("/api/preview", func(w http.ResponseWriter, r *http.Request) {
+		s.log.Infof("Web", "API Call: %s", r.URL.Path)
+		s.handlePreview(w, r)
+	})
+
+	mux.HandleFunc("/api/open-in-app", func(w http.ResponseWriter, r *http.Request) {
+		s.log.Infof("Web", "API Call: %s", r.URL.Path)
+		s.handleOpenInApp(w, r)
+	})
+
+	mux.HandleFunc("/api/print", func(w http.ResponseWriter, r *http.Request) {
+		s.log.Infof("Web", "API Call: %s", r.URL.Path)
+		s.handlePrint(w, r)
+	})
+
 	s.log.Infof("Web", "HTTP server listening on %s", addr)
 	return http.ListenAndServe(addr, mux)
 }
@@ -269,10 +300,10 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		if f.IsDir() || strings.HasSuffix(f.Name(), ".json") {
 			continue
 		}
-		
+
 		name := f.Name()
 		jsonPath := filepath.Join(s.cfg.DownloadsDir, name+".json")
-		
+
 		var info FileInfo
 		data, err := os.ReadFile(jsonPath)
 		if err == nil {
@@ -316,7 +347,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 
 		result = append(result, info)
 	}
-	
+
 	// Sort by time descending
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Time > result[j].Time
@@ -326,10 +357,38 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+func (s *Server) handleClearDownloads(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	files, err := os.ReadDir(s.cfg.DownloadsDir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	count := 0
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+		path := filepath.Join(s.cfg.DownloadsDir, f.Name())
+		if err := os.Remove(path); err == nil {
+			count++
+		}
+	}
+
+	s.log.Infof("Web", "Cleared %d files from downloads directory", count)
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{"count": count})
+}
+
 func (s *Server) handleTerminateWhatsApp(w http.ResponseWriter, r *http.Request) {
 	if s.OnWhatsAppTerminate != nil {
 		s.OnWhatsAppTerminate()
-		s.Hub.Broadcast(Message{Type: "status", Payload: map[string]string{"whatsapp": "disconnected"}})
+		// Broadcaster already sends the clear signal via main.go
 	}
 	w.WriteHeader(http.StatusOK)
 }
@@ -350,6 +409,20 @@ func (s *Server) handleTerminateGmail(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleConnectWhatsApp(w http.ResponseWriter, r *http.Request) {
 	if s.OnWhatsAppConnect != nil {
 		s.OnWhatsAppConnect()
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleConnectWhatsAppPhone(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Phone string `json:"phone"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if s.OnWhatsAppConnectPhone != nil {
+		s.OnWhatsAppConnectPhone(body.Phone)
 	}
 	w.WriteHeader(http.StatusOK)
 }
@@ -409,6 +482,54 @@ func (s *Server) handlePrinters(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(printers)
+}
+
+func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		http.Error(w, "missing filename", http.StatusBadRequest)
+		return
+	}
+
+	path := filepath.Join(s.cfg.DownloadsDir, filename)
+	previewPath, err := printer.PreparePreview(path)
+	if err != nil {
+		s.log.Errorf("Web", "Preview error for %s: %v", filename, err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert absolute preview path back to a web URL
+	// previewPath is something like C:\...\previews\file.pdf
+	// We exposed /previews/ to the 'previews' directory
+	wd, _ := os.Getwd()
+	rel, err := filepath.Rel(filepath.Join(wd, "previews"), previewPath)
+	if err != nil {
+		// Fallback to just the filename if Rel fails
+		rel = filepath.Base(previewPath)
+	}
+	
+	url := "/previews/" + filepath.ToSlash(rel)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"url": url})
+}
+
+func (s *Server) handleOpenInApp(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Filename string `json:"filename"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	path := filepath.Join(s.cfg.DownloadsDir, body.Filename)
+	err := printer.OpenNative(path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handlePrint(w http.ResponseWriter, r *http.Request) {
