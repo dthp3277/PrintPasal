@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Smartphone, Mail, AlertTriangle, RefreshCw, CheckCircle, ExternalLink, Hash, QrCode } from 'lucide-react';
+import { X, Smartphone, Mail, AlertTriangle, RefreshCw, CheckCircle, ExternalLink, Hash, QrCode, ArrowRight } from 'lucide-react';
 import { ServiceInfo } from '../types';
 import QRCodeDisplay from './QRCodeDisplay';
 
