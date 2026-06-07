@@ -276,6 +276,11 @@ func (s *Server) Start(addr string) error {
 		s.handleOpenInApp(w, r)
 	})
 
+	mux.HandleFunc("/api/open-in-explorer", func(w http.ResponseWriter, r *http.Request) {
+		s.log.Infof("Web", "API Call: %s", r.URL.Path)
+		s.handleOpenInExplorer(w, r)
+	})
+
 	mux.HandleFunc("/api/printer/native-settings", func(w http.ResponseWriter, r *http.Request) {
 		s.log.Infof("Web", "API Call: %s", r.URL.Path)
 		s.handleOpenPrinterNativeSettings(w, r)
@@ -592,6 +597,24 @@ func (s *Server) handleOpenInApp(w http.ResponseWriter, r *http.Request) {
 
 	path := filepath.Join(s.cfg.DownloadsDir, body.Filename)
 	err := printer.OpenNative(path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleOpenInExplorer(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Filename string `json:"filename"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	path := filepath.Join(s.cfg.DownloadsDir, body.Filename)
+	err := printer.OpenInExplorer(path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

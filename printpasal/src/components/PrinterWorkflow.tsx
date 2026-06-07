@@ -257,6 +257,23 @@ function PreviewPane({ attachments, paperSize, orientation, layout }: PreviewPan
 /* ── Main component ────────────────────────────────────────────────── */
 
 export default function PrinterWorkflow({ attachments, onClose }: PrinterWorkflowProps) {
+  const processedAttachments = useMemo(() => {
+    return attachments.map(att => {
+      if (att.fileType === 'image') {
+        try {
+          const raw = localStorage.getItem('printpasal_crop_' + att.fileName);
+          if (raw) {
+            const data = JSON.parse(raw);
+            if (data.croppedDataUrl) {
+              return { ...att, fileUrl: data.croppedDataUrl };
+            }
+          }
+        } catch (e) { }
+      }
+      return att;
+    });
+  }, [attachments]);
+
   const [printers, setPrinters] = useState<PrinterType[]>([]);
   const [selectedPrinterId, setSelectedPrinterId] = useState<string>('');
   const [settings, setSettings] = useState<PrintSettings>(DEFAULT_SETTINGS);
@@ -382,7 +399,7 @@ export default function PrinterWorkflow({ attachments, onClose }: PrinterWorkflo
   };
 
   const handlePrint = async () => {
-    if (!selectedPrinter || attachments.length === 0) return;
+    if (!selectedPrinter || processedAttachments.length === 0) return;
 
     setIsPrinting(true);
     setError(null);
@@ -391,8 +408,8 @@ export default function PrinterWorkflow({ attachments, onClose }: PrinterWorkflo
     setPrintStatusText('');
 
     try {
-      for (let i = 0; i < attachments.length; i++) {
-        const att = attachments[i];
+      for (let i = 0; i < processedAttachments.length; i++) {
+        const att = processedAttachments[i];
         setCurrentFileIndex(i);
         setPrintStatusText(`Preparing ${att.fileName}...`);
         setProgress(10);
@@ -447,7 +464,7 @@ export default function PrinterWorkflow({ attachments, onClose }: PrinterWorkflo
             <div>
               <h3 className="text-xs font-extrabold uppercase tracking-wider text-white">Print Setup</h3>
               <p className="text-[9px] uppercase tracking-[0.2em] text-zinc-500">
-                {attachments.length === 1 ? attachments[0].fileName : `${attachments.length} files in batch`}
+                {processedAttachments.length === 1 ? processedAttachments[0].fileName : `${processedAttachments.length} files in batch`}
               </p>
             </div>
           </div>
@@ -732,7 +749,7 @@ export default function PrinterWorkflow({ attachments, onClose }: PrinterWorkflo
 
           {/* Right: preview panel */}
           <div className="hidden w-[380px] shrink-0 border-l border-white/5 bg-[#08080c] md:block">
-            <PreviewPane attachments={attachments} paperSize={settings.paperSize} orientation={settings.orientation} layout={settings.layout} />
+            <PreviewPane attachments={processedAttachments} paperSize={settings.paperSize} orientation={settings.orientation} layout={settings.layout} />
           </div>
         </div>
 
@@ -754,13 +771,13 @@ export default function PrinterWorkflow({ attachments, onClose }: PrinterWorkflo
                   <div className="flex items-center justify-between gap-4">
                     <p className="truncate text-xs text-zinc-300">{printStatusText}</p>
                     <span className="font-mono text-[10px] font-bold text-zinc-400">
-                      {Math.round(((currentFileIndex + (progress / 100)) / Math.max(attachments.length, 1)) * 100)}%
+                      {Math.round(((currentFileIndex + (progress / 100)) / Math.max(processedAttachments.length, 1)) * 100)}%
                     </span>
                   </div>
                   <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-white/5">
                     <div
                       className="h-full bg-blue-600 shadow-[0_0_10px_rgba(59,130,246,0.8)] transition-all duration-200"
-                      style={{ width: `${((currentFileIndex + (progress / 100)) / Math.max(attachments.length, 1)) * 100}%` }}
+                      style={{ width: `${((currentFileIndex + (progress / 100)) / Math.max(processedAttachments.length, 1)) * 100}%` }}
                     />
                   </div>
                 </div>
@@ -779,7 +796,7 @@ export default function PrinterWorkflow({ attachments, onClose }: PrinterWorkflo
             <button
               type="button"
               onClick={handlePrint}
-              disabled={!selectedPrinter || isPrinting || attachments.length === 0}
+              disabled={!selectedPrinter || isPrinting || processedAttachments.length === 0}
               className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-5 py-2 text-[10px] font-bold uppercase tracking-wider text-white shadow-[0_0_20px_rgba(37,99,235,0.45)] transition-all hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Play className="h-3.5 w-3.5 fill-current" />

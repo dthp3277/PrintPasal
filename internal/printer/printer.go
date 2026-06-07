@@ -152,6 +152,15 @@ func OpenNative(filePath string) error {
 	return exec.Command("cmd", "/c", "start", "", absPath).Run()
 }
 
+func OpenInExplorer(filePath string) error {
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return err
+	}
+	// On Windows, explorer /select,"C:\path" opens the folder and highlights the file
+	return exec.Command("explorer", "/select,", absPath).Run()
+}
+
 func OpenNativeSettings(printerName string, properties bool) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("native printer settings only supported on windows")

@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   ZoomIn, ZoomOut, RotateCw, Printer, Download, Eye, 
-  FileCheck, ShieldAlert, ChevronLeft, ChevronRight, FileText, Search, X, ArrowUp, ArrowDown, RefreshCw, Crop as CropIcon, Check
+  FileCheck, ShieldAlert, ChevronLeft, ChevronRight, FileText, Search, X, ArrowUp, ArrowDown, RefreshCw, Crop as CropIcon, Check, FolderOpen
 } from 'lucide-react';
 import ReactCrop, { type Crop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
@@ -159,6 +159,19 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
       });
     } catch (e) {
       console.error('Failed to open in app', e);
+    }
+  };
+
+  const handleOpenInExplorer = async () => {
+    if (!attachment) return;
+    try {
+      await fetch('/api/open-in-explorer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: attachment.fileName })
+      });
+    } catch (e) {
+      console.error('Failed to open in explorer', e);
     }
   };
 
@@ -682,11 +695,21 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
           {!isCropping && (
             <>
               <button
+                onClick={handleOpenInExplorer}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-300 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+                title="Show in folder"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">Show in Folder</span>
+              </button>
+
+              <button
                 onClick={handleOpenInApp}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-300 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+                title="Open with default app"
               >
                 <Eye className="w-3.5 h-3.5" />
-                <span>Open in App</span>
+                <span className="hidden lg:inline">Open in App</span>
               </button>
 
               <button
