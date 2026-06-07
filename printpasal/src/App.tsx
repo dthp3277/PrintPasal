@@ -9,6 +9,7 @@ import AttachmentList from './components/AttachmentList';
 import AttachmentPreview from './components/AttachmentPreview';
 import PrinterWorkflow from './components/PrinterWorkflow';
 import SelectedFilesTray from './components/SelectedFilesTray';
+import CombineWorkspace from './components/CombineWorkspace';
 import { Attachment, ServiceInfo } from './types';
 import { Wifi, Plus, HelpCircle, Activity, Info, MessageSquare } from 'lucide-react';
 
@@ -27,6 +28,8 @@ export default function App() {
   const [isPrintWizardOpen, setIsPrintWizardOpen] = useState(false);
   const [simulationAlert, setSimulationAlert] = useState<string | null>(null);
   const [isGmailSyncing, setIsGmailSyncing] = useState(false);
+  const [combineMode, setCombineMode] = useState<'off' | 'combine' | 'nagrikta'>('off');
+  const [combineDataUrl, setCombineDataUrl] = useState<string | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
 
@@ -364,7 +367,21 @@ export default function App() {
         onConnectGmail={() => sendWsCommand('connect', 'gmail')}
       />
 
-      {/* Main Workspace Frame Splitter */}
+      {combineMode !== 'off' && (
+        <CombineWorkspace
+          attachments={attachments.filter(a => selectedIds.has(a.id))}
+          mode={combineMode}
+          onBack={() => { setCombineMode('off'); setCombineDataUrl(null); }}
+          onPrint={(dataUrl, label) => {
+            setCombineDataUrl(dataUrl);
+            setCombineMode('off');
+            setIsPrintWizardOpen(true);
+          }}
+        />
+      )}
+
+      {combineMode === 'off' && (
+      /* Main Workspace Frame Splitter */
       <div className="flex flex-1 min-h-0 relative">
         
         {/* Unread Alert Overlay */}
@@ -407,6 +424,8 @@ export default function App() {
                 onRemove={toggleSelection}
                 onClearAll={clearSelection}
                 onOpenPrintWizard={() => setIsPrintWizardOpen(true)}
+                onCombine={() => setCombineMode('combine')}
+                onNagrikta={() => setCombineMode('nagrikta')}
               />
             ) : (
               <AttachmentPreview 
@@ -446,19 +465,21 @@ export default function App() {
         </div>
 
       </div>
+      )}
 
       {/* Printer Step-by-Step UI wizard overlay */}
-      {isPrintWizardOpen && (selectedAttachment || selectedIds.size > 0) && (
+      {isPrintWizardOpen && (selectedAttachment || selectedIds.size > 0 || combineDataUrl) && (
         <PrinterWorkflow 
           attachments={
-            selectedIds.size > 1 
-              ? attachments.filter(a => selectedIds.has(a.id))
-              : selectedAttachment ? [selectedAttachment] : []
+            combineDataUrl
+              ? [{ id: 'combined', fileName: 'Combined Document', fileType: 'image', fileUrl: combineDataUrl, source: 'whatsapp', senderNumber: '', timestamp: new Date().toISOString(), unread: false } as Attachment]
+              : selectedIds.size > 1 
+                ? attachments.filter(a => selectedIds.has(a.id))
+                : selectedAttachment ? [selectedAttachment] : []
           }
           onClose={() => {
             setIsPrintWizardOpen(false);
-            // Optional: clear selection after successful print? 
-            // For now let's keep it to allow re-printing.
+            setCombineDataUrl(null);
           }}
         />
       )}

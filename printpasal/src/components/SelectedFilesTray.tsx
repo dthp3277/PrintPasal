@@ -18,6 +18,8 @@ interface SelectedFilesTrayProps {
   onRemove: (id: string) => void;
   onClearAll: () => void;
   onOpenPrintWizard: () => void;
+  onCombine: () => void;
+  onNagrikta: () => void;
 }
 
 function Thumbnail({ attachment }: { attachment: Attachment }) {
@@ -82,7 +84,9 @@ export default function SelectedFilesTray({
   selectedAttachments,
   onRemove,
   onClearAll,
-  onOpenPrintWizard
+  onOpenPrintWizard,
+  onCombine,
+  onNagrikta
 }: SelectedFilesTrayProps) {
   
   const formatSize = (bytes: number): string => {
@@ -119,6 +123,25 @@ export default function SelectedFilesTray({
             <Trash2 className="w-3.5 h-3.5" />
             <span>Clear Selection</span>
           </button>
+
+          {selectedAttachments.every(a => a.fileType === 'image') && (
+            <>
+              {selectedAttachments.length === 2 && (
+                <button
+                  onClick={onNagrikta}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 text-amber-400 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+                >
+                  <span>Nagrikta</span>
+                </button>
+              )}
+              <button
+                onClick={onCombine}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+              >
+                <span>Combine</span>
+              </button>
+            </>
+          )}
 
           <button
             onClick={onOpenPrintWizard}

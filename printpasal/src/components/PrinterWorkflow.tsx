@@ -100,12 +100,14 @@ export default function PrinterWorkflow({ attachments, onClose }: PrinterWorkflo
         setPrintStatusText(`Preparing [${i + 1}/${attachments.length}]: ${att.fileName}...`);
         setProgress(0);
 
+        const isDataUrl = att.fileUrl.startsWith('data:');
         const resp = await fetch('/api/print', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             filename: att.fileName,
-            printer: selectedPrinter.name
+            printer: selectedPrinter.name,
+            ...(isDataUrl ? { fileData: att.fileUrl } : {}),
           })
         });
 

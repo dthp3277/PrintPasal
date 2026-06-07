@@ -598,19 +598,40 @@ func (s *Server) handlePrint(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Filename string `json:"filename"`
 		Printer  string `json:"printer"`
+		FileData string `json:"fileData,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
-	path := filepath.Join(s.cfg.DownloadsDir, body.Filename)
-	if _, err := os.Stat(path); err != nil {
-		http.Error(w, "file not found", http.StatusNotFound)
-		return
+	var path string
+	if body.FileData != "" {
+		data := body.FileData
+		if idx := strings.Index(data, ","); idx != -1 {
+			data = data[idx+1:]
+		}
+		decoded, err := base64.StdEncoding.DecodeString(data)
+		if err != nil {
+			http.Error(w, "invalid file data", http.StatusBadRequest)
+			return
+		}
+		tmpFile := filepath.Join(s.cfg.DownloadsDir, ".tmp_"+body.Filename+".png")
+		if err := os.WriteFile(tmpFile, decoded, 0644); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer os.Remove(tmpFile)
+		path = tmpFile
+	} else {
+		path = filepath.Join(s.cfg.DownloadsDir, body.Filename)
+		if _, err := os.Stat(path); err != nil {
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
 	}
 
-	s.log.Infof("Web", "Printing %s to %s", body.Filename, body.Printer)
+	s.log.Infof("Web", "Printing %s to %s", filepath.Base(path), body.Printer)
 	err := printer.Print(path, body.Printer)
 	if err != nil {
 		s.log.Errorf("Web", "Print error: %v", err)
