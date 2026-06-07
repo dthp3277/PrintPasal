@@ -2,7 +2,7 @@
 title PrintShop — Build
 echo Building printshop.exe ...
 set CGO_ENABLED=0
-go build -ldflags="-s -w" -o printshop.exe ./cmd/printshop
+go build -ldflags="-s -w -H=windowsgui" -o printshop.exe ./cmd/printshop
 if %errorlevel% neq 0 (
     echo.
     echo BUILD FAILED. Check the error above.

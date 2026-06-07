@@ -110,8 +110,10 @@ go run ./cmd/printshop
 
 Or build a single .exe to double-click:
 ```
-go build -o printshop.exe ./cmd/printshop
+go build -ldflags="-s -w -H=windowsgui" -o printshop.exe ./cmd/printshop
 ```
+*(The `-H=windowsgui` flag hides the black terminal window. If you want to see logs in the terminal, run `build.bat` after removing that flag, or just use `go run`)*
+
 Then just double-click `printshop.exe`.
 
 ---
