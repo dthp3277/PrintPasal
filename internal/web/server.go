@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"mime"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"printshop/internal/config"
@@ -279,8 +281,62 @@ func (s *Server) Start(addr string) error {
 		s.handlePrint(w, r)
 	})
 
+	mux.HandleFunc("/api/files/upload", func(w http.ResponseWriter, r *http.Request) {
+		s.log.Infof("Web", "API Call: %s", r.URL.Path)
+		s.handleUpload(w, r)
+	})
+
 	s.log.Infof("Web", "HTTP server listening on %s", addr)
 	return http.ListenAndServe(addr, mux)
+}
+
+func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		Filename string `json:"filename"`
+		Data     string `json:"data"` // Base64
+		Source   string `json:"source"`
+		Sender   string `json:"sender"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// Remove base64 prefix if present
+	if idx := strings.Index(body.Data, ","); idx != -1 {
+		body.Data = body.Data[idx+1:]
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(body.Data)
+	if err != nil {
+		http.Error(w, "invalid base64 data", http.StatusBadRequest)
+		return
+	}
+
+	path, err := fileutil.SaveFile(s.cfg.DownloadsDir, body.Filename, decoded)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Save metadata
+	baseName := filepath.Base(path)
+	fileutil.SaveRichMetadata(s.cfg.DownloadsDir, baseName, fileutil.Metadata{
+		Source:     body.Source,
+		SenderName: body.Sender,
+		Time:       time.Now().Format(time.RFC3339),
+		FileSize:   int64(len(decoded)),
+	})
+
+	s.log.Infof("Web", "Uploaded/Saved cropped file: %s", baseName)
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"filename": baseName})
 }
 
 type FileInfo struct {

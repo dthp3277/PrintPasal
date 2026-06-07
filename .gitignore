@@ -31,3 +31,4 @@ desktop.ini
 .env.production.local
 *.secret
 printpasal/.env
+.aider*
