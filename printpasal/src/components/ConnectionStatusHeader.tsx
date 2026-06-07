@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Smartphone, Mail, CheckCircle, AlertTriangle, XCircle, LogOut, RefreshCw, Power } from 'lucide-react';
+import { Smartphone, Mail, CheckCircle, AlertTriangle, XCircle, LogOut, RefreshCw, Power, Sun, Moon } from 'lucide-react';
 import { ServiceInfo, ServiceStatus } from '../types';
 import ConnectionModal from './ConnectionModal';
 
@@ -23,6 +23,30 @@ export default function ConnectionStatusHeader({
   const [expandedService, setExpandedService] = useState<'whatsapp' | 'gmail' | null>(null);
   const [connectTarget, setConnectTarget] = useState<'whatsapp' | 'gmail' | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  useEffect(() => {
+    const stored = localStorage.getItem('theme');
+    if (stored === 'light') {
+      setTheme('light');
+      document.documentElement.classList.add('light');
+    } else {
+      document.documentElement.classList.remove('light');
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    setTheme(prev => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('theme', next);
+      if (next === 'light') {
+        document.documentElement.classList.add('light');
+      } else {
+        document.documentElement.classList.remove('light');
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -213,6 +237,15 @@ export default function ConnectionStatusHeader({
               </div>
             )}
           </div>
+
+          {/* Theme Toggle */}
+          <button
+            onClick={toggleTheme}
+            className="flex items-center justify-center w-9 h-9 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-zinc-300 hover:text-white shrink-0 ml-1"
+            title="Toggle Light/Dark Mode"
+          >
+            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
         </div>
       </header>
 

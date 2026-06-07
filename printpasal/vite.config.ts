@@ -14,6 +14,17 @@ export default defineConfig(() => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+      target: 'es2015',
+      cssMinify: 'lightningcss',
+    },
+    css: {
+      transformer: 'lightningcss',
+      lightningcss: {
+        targets: {
+          chrome: 109 << 16,
+          edge: 109 << 16
+        }
+      }
     },
     server: {
       proxy: {
