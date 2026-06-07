@@ -75,7 +75,7 @@ function WhatsAppAuthPanel({ waInfo, onClose }: { waInfo: ServiceInfo; onClose: 
         </button>
       </div>
 
-      <div className="min-h-[320px] flex flex-col items-center justify-center">
+      <div className="min-h-[320px flex flex-col items-center justify-center">
         {method === 'qr' ? (
           waInfo.qrCode ? (
             <div className="flex flex-col items-center gap-5 w-full">
@@ -238,7 +238,7 @@ function GmailAuthPanel({ gmailInfo, onClose }: { gmailInfo: ServiceInfo; onClos
         </div>
         <div>
           <p className="text-white font-bold text-sm">Sign in with Google</p>
-          <p className="text-zinc-500 text-[11px] mt-1 max-w-[240px] leading-relaxed">You'll be redirected to Google to authorize access to your Gmail inbox.</p>
+          <p className="text-zinc-500 text-[11px] mt-1 max-w-60 leading-relaxed">You'll be redirected to Google to authorize access to your Gmail inbox.</p>
         </div>
         <button onClick={handleSignIn} className="w-full flex items-center justify-center gap-2.5 py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition-all">
           <ExternalLink className="w-3.5 h-3.5" /> Open Google Sign-In
@@ -296,7 +296,7 @@ export default function ConnectionModal({
   if (!isOpen || !target) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div className="relative w-full max-w-md bg-[#0a0a0f] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/5">
           <h2 className="text-lg font-bold text-white tracking-wide uppercase">

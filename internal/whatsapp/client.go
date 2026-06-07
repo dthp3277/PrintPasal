@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,11 +172,31 @@ func (c *Client) handleEvent(rawEvt interface{}) {
 	msg := evt.Message
 	info := evt.Info
 
+	// DEBUG: Print the raw Info struct to see what JIDs WhatsApp is actually providing
+	fmt.Printf("\n[DEBUG] Raw Message Info: %+v\n\n", info)
+
 	senderName := info.PushName
-	if strings.TrimSpace(senderName) == "" {
-		senderName = info.Sender.User
+	
+	senderUser := info.Sender.User
+
+	// When WhatsApp uses LIDs (Linked Device IDs) for privacy, the true phone number
+	// is often provided in SenderAlt (for incoming) or RecipientAlt (for outgoing)
+	if info.SenderAlt.Server == "s.whatsapp.net" {
+		senderUser = info.SenderAlt.User
+	} else if info.IsFromMe && info.RecipientAlt.Server == "s.whatsapp.net" {
+		senderUser = info.RecipientAlt.User
+	} else if info.Sender.Server == "lid" && !info.IsGroup {
+		if info.Chat.Server == "s.whatsapp.net" {
+			senderUser = info.Chat.User
+		}
+	} else if !info.IsGroup && info.Chat.Server == "s.whatsapp.net" {
+	    senderUser = info.Chat.User
 	}
-	senderPhone := "+" + info.Sender.User
+
+	if strings.TrimSpace(senderName) == "" {
+		senderName = "+" + senderUser
+	}
+	senderPhone := "+" + senderUser
 
 	switch {
 	case msg.GetDocumentMessage() != nil:

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"mime"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"printshop/internal/config"
@@ -188,6 +190,12 @@ func (s *Server) Start(addr string) error {
 	mux := http.NewServeMux()
 	mux.Handle("/ws", s.Hub)
 
+	// Ensure data directories exist in WD if not absolute to prevent resolve() from falling back
+	if !filepath.IsAbs(s.cfg.DownloadsDir) {
+		os.MkdirAll(filepath.Join(wd, s.cfg.DownloadsDir), 0755)
+	}
+	os.MkdirAll(filepath.Join(wd, "previews"), 0755)
+
 	downloadsDir := resolve("downloads", s.cfg.DownloadsDir)
 	mux.Handle("/downloads/", http.StripPrefix("/downloads/", http.FileServer(http.Dir(downloadsDir))))
 
@@ -268,13 +276,72 @@ func (s *Server) Start(addr string) error {
 		s.handleOpenInApp(w, r)
 	})
 
+	mux.HandleFunc("/api/printer/native-settings", func(w http.ResponseWriter, r *http.Request) {
+		s.log.Infof("Web", "API Call: %s", r.URL.Path)
+		s.handleOpenPrinterNativeSettings(w, r)
+	})
+
 	mux.HandleFunc("/api/print", func(w http.ResponseWriter, r *http.Request) {
 		s.log.Infof("Web", "API Call: %s", r.URL.Path)
 		s.handlePrint(w, r)
 	})
 
+	mux.HandleFunc("/api/files/upload", func(w http.ResponseWriter, r *http.Request) {
+		s.log.Infof("Web", "API Call: %s", r.URL.Path)
+		s.handleUpload(w, r)
+	})
+
 	s.log.Infof("Web", "HTTP server listening on %s", addr)
 	return http.ListenAndServe(addr, mux)
+}
+
+func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		Filename string `json:"filename"`
+		Data     string `json:"data"` // Base64
+		Source   string `json:"source"`
+		Sender   string `json:"sender"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// Remove base64 prefix if present
+	if idx := strings.Index(body.Data, ","); idx != -1 {
+		body.Data = body.Data[idx+1:]
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(body.Data)
+	if err != nil {
+		http.Error(w, "invalid base64 data", http.StatusBadRequest)
+		return
+	}
+
+	path, err := fileutil.SaveFile(s.cfg.DownloadsDir, body.Filename, decoded)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Save metadata
+	baseName := filepath.Base(path)
+	fileutil.SaveRichMetadata(s.cfg.DownloadsDir, baseName, fileutil.Metadata{
+		Source:     body.Source,
+		SenderName: body.Sender,
+		Time:       time.Now().Format(time.RFC3339),
+		FileSize:   int64(len(decoded)),
+	})
+
+	s.log.Infof("Web", "Uploaded/Saved cropped file: %s", baseName)
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"filename": baseName})
 }
 
 type FileInfo struct {
@@ -536,22 +603,83 @@ func (s *Server) handlePrint(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Filename string `json:"filename"`
 		Printer  string `json:"printer"`
+		Copies   int    `json:"copies"`
+		Orientation string `json:"orientation"`
+		Duplex   string `json:"duplex"`
+		Collate  bool   `json:"collate"`
+		ColorMode string `json:"colorMode"`
+		PaperSize string `json:"paperSize"`
+		Layout   string `json:"layout"`
+		PageRange string `json:"pageRange"`
+		FileData string `json:"fileData,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
-	path := filepath.Join(s.cfg.DownloadsDir, body.Filename)
-	if _, err := os.Stat(path); err != nil {
-		http.Error(w, "file not found", http.StatusNotFound)
+	var path string
+	if body.FileData != "" {
+		data := body.FileData
+		if idx := strings.Index(data, ","); idx != -1 {
+			data = data[idx+1:]
+		}
+		decoded, err := base64.StdEncoding.DecodeString(data)
+		if err != nil {
+			http.Error(w, "invalid file data", http.StatusBadRequest)
+			return
+		}
+		tmpFile := filepath.Join(s.cfg.DownloadsDir, ".tmp_"+body.Filename+".png")
+		if err := os.WriteFile(tmpFile, decoded, 0644); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer os.Remove(tmpFile)
+		path = tmpFile
+	} else {
+		path = filepath.Join(s.cfg.DownloadsDir, body.Filename)
+		if _, err := os.Stat(path); err != nil {
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	s.log.Infof("Web", "Printing %s to %s", filepath.Base(path), body.Printer)
+	err := printer.Print(path, body.Printer, printer.PrintOptions{
+		Copies:      body.Copies,
+		Orientation: body.Orientation,
+		ColorMode:   body.ColorMode,
+		Duplex:      body.Duplex,
+		Collate:     body.Collate,
+		PaperSize:   body.PaperSize,
+		Layout:      body.Layout,
+		PageRange:   body.PageRange,
+	})
+	if err != nil {
+		s.log.Errorf("Web", "Print error: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	s.log.Infof("Web", "Printing %s to %s", body.Filename, body.Printer)
-	err := printer.Print(path, body.Printer)
-	if err != nil {
-		s.log.Errorf("Web", "Print error: %v", err)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleOpenPrinterNativeSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		Printer    string `json:"printer"`
+		Properties bool   `json:"properties"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Printer) == "" {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if err := printer.OpenNativeSettings(body.Printer, body.Properties); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

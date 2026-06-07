@@ -6,10 +6,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   ZoomIn, ZoomOut, RotateCw, Printer, Download, Eye, 
-  FileCheck, ShieldAlert, ChevronLeft, ChevronRight, FileText, Search, X, ArrowUp, ArrowDown, RefreshCw
+  FileCheck, ShieldAlert, ChevronLeft, ChevronRight, FileText, Search, X, ArrowUp, ArrowDown, RefreshCw, Crop as CropIcon, Check
 } from 'lucide-react';
+import ReactCrop, { type Crop } from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
 import { Attachment } from '../types';
 import { Document, Page, pdfjs } from 'react-pdf';
+
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -27,6 +30,36 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
   const [pdfPage, setPdfPage] = useState(1);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
+
+  const CROP_STORAGE_PREFIX = 'printpasal_crop_';
+
+  function loadStoredCrop(fileName: string) {
+    try {
+      const raw = localStorage.getItem(CROP_STORAGE_PREFIX + fileName);
+      if (raw) return JSON.parse(raw) as { croppedDataUrl: string | null; lastCrop: Crop | undefined };
+    } catch { /* ignore corrupt data */ }
+    return undefined;
+  }
+
+  function saveCropToStorage(fileName: string, data: { croppedDataUrl: string | null; lastCrop: Crop | undefined }) {
+    try {
+      localStorage.setItem(CROP_STORAGE_PREFIX + fileName, JSON.stringify(data));
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+        localStorage.setItem(CROP_STORAGE_PREFIX + fileName, JSON.stringify({ croppedDataUrl: null, lastCrop: data.lastCrop }));
+      }
+    }
+  }
+
+  // Cropping state
+  const [isCropping, setIsCropping] = useState(false);
+  const [crop, setCrop] = useState<Crop>();
+  const [completedCrop, setCompletedCrop] = useState<Crop | null>(null);
+  const [lastCrop, setLastCrop] = useState<Crop | undefined>(undefined);
+  const [croppedDataUrl, setCroppedDataUrl] = useState<string | null>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const [isSavingCrop, setIsSavingCrop] = useState(false);
+  const cropStoreRef = useRef<Map<string, { croppedDataUrl: string | null; lastCrop: Crop | undefined }>>(new Map());
 
   // Page input — editable "x / n" field
   const [pageInputEditing, setPageInputEditing] = useState(false);
@@ -46,6 +79,18 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // Load stored crops from localStorage into ref on mount
+  useEffect(() => {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(CROP_STORAGE_PREFIX)) {
+        const fileName = key.slice(CROP_STORAGE_PREFIX.length);
+        const saved = loadStoredCrop(fileName);
+        if (saved) cropStoreRef.current.set(fileName, saved);
+      }
+    }
+  }, []);
+
   // Reset everything when attachment changes
   useEffect(() => {
     setPdfPage(1);
@@ -59,15 +104,33 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
     setSearchMatchIdx(0);
     setPdfDoc(null);
     setPreviewUrl(null);
+    setIsCropping(false);
+    setCrop(undefined);
+    setCompletedCrop(null);
 
     if (attachment) {
+      let saved = cropStoreRef.current.get(attachment.fileName);
+      if (!saved) saved = loadStoredCrop(attachment.fileName) ?? undefined;
+      if (saved) {
+        setCroppedDataUrl(saved.croppedDataUrl);
+        setLastCrop(saved.lastCrop);
+      } else {
+        setCroppedDataUrl(null);
+        setLastCrop(undefined);
+      }
+
       if (attachment.fileType === 'pdf' || attachment.fileType === 'image') {
         setPreviewUrl(attachment.fileUrl);
       } else if (attachment.fileType === 'document') {
         fetchPreview(attachment.fileName);
       }
+    } else {
+      setCroppedDataUrl(null);
+      setLastCrop(undefined);
     }
   }, [attachment]);
+
+
 
   const fetchPreview = async (filename: string) => {
     setIsLoadingPreview(true);
@@ -139,6 +202,62 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
     setIsSearching(false);
     if (results.length > 0) scrollToPage(results[0].page);
   }, []);
+
+  const handleSaveCrop = useCallback(async () => {
+    if (!completedCrop || !previewUrl) return;
+    setIsSavingCrop(true);
+    try {
+      const response = await fetch(previewUrl);
+      const blob = await response.blob();
+      const image = new Image();
+      const blobUrl = URL.createObjectURL(blob);
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error('Failed to load image'));
+        image.src = blobUrl;
+      });
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const { x, y, width, height, unit } = completedCrop;
+      const scaleX = unit === '%' ? image.naturalWidth / 100 : image.naturalWidth / (imgRef.current?.width || image.naturalWidth);
+      const scaleY = unit === '%' ? image.naturalHeight / 100 : image.naturalHeight / (imgRef.current?.height || image.naturalHeight);
+
+      canvas.width = width * scaleX;
+      canvas.height = height * scaleY;
+
+      ctx.drawImage(
+        image,
+        x * scaleX,
+        y * scaleY,
+        width * scaleX,
+        height * scaleY,
+        0,
+        0,
+        width * scaleX,
+        height * scaleY
+      );
+
+      const croppedPng = canvas.toDataURL('image/png');
+      setCroppedDataUrl(croppedPng);
+      setLastCrop(crop);
+      if (attachment) {
+        const data = { croppedDataUrl: croppedPng, lastCrop: crop };
+        cropStoreRef.current.set(attachment.fileName, data);
+        saveCropToStorage(attachment.fileName, data);
+      }
+      URL.revokeObjectURL(blobUrl);
+      setIsCropping(false);
+      setCrop(undefined);
+      setCompletedCrop(null);
+    } catch (e) {
+      console.error('Failed to save crop', e);
+    } finally {
+      setIsSavingCrop(false);
+    }
+  }, [completedCrop, crop, previewUrl]);
 
   if (!attachment) {
     return (
@@ -281,7 +400,7 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
 
         {/* Filename */}
         <div className="hidden md:flex items-center gap-1.5 font-bold uppercase tracking-wider text-[10px] text-zinc-400 flex-1 min-w-0">
-          <FileText className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+          <FileText className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
           <span className="truncate">{attachment.fileName}</span>
         </div>
 
@@ -405,6 +524,30 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
 
     switch (attachment.fileType) {
       case 'image':
+        if (isCropping && attachment.fileUrl) {
+          return (
+            <div className="relative flex-1 flex items-center justify-center overflow-auto bg-[#050508] rounded-xl border border-white/5 min-h-[400px]">
+              <div
+                style={{ transform: `rotate(${rotation}deg) scale(${zoom / 100})` }}
+              >
+                <ReactCrop
+                  crop={crop}
+                  onChange={c => setCrop(c)}
+                  onComplete={c => setCompletedCrop(c)}
+                  className="max-h-[600px]"
+                >
+                  <img
+                    ref={imgRef}
+                    src={attachment.fileUrl}
+                    alt={attachment.fileName}
+                    className="max-h-[600px] max-w-full object-contain"
+                    referrerPolicy="no-referrer"
+                  />
+                </ReactCrop>
+              </div>
+            </div>
+          );
+        }
         return (
           <div className="relative flex-1 flex items-center justify-center overflow-auto bg-[#050508] rounded-xl border border-white/5 p-4 min-h-[400px]">
             <div
@@ -412,7 +555,7 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
               style={{ transform: `rotate(${rotation}deg) scale(${zoom / 100})`, maxHeight: '80%', maxWidth: '80%' }}
             >
               <img
-                src={previewUrl || attachment.fileUrl}
+                src={croppedDataUrl || previewUrl || attachment.fileUrl}
                 alt={attachment.fileName}
                 className="rounded-lg shadow-2xl max-h-[450px] max-w-full object-contain pointer-events-none border border-white/5"
                 referrerPolicy="no-referrer"
@@ -481,43 +624,80 @@ export default function AttachmentPreview({ attachment, onOpenPrintWizard }: Att
 
         {/* Toolbar controls */}
         <div className="flex items-center gap-2.5 shrink-0">
-          <div className="flex items-center rounded-xl border border-white/10 p-1 bg-white/5">
-            <button onClick={handleZoomOut} className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-all" title="Zoom out">
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <span className="px-2 font-mono text-xs font-bold text-zinc-300 w-12 text-center select-none">{zoom}%</span>
-            <button onClick={handleZoomIn} className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-all" title="Zoom in">
-              <ZoomIn className="w-4 h-4" />
-            </button>
-            {attachment.fileType === 'image' && (
-              <>
-                <div className="w-px h-4 bg-white/10 mx-1" />
-                <button onClick={handleRotate} className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-all" title="Rotate Right">
-                  <RotateCw className="w-4 h-4" />
-                </button>
-              </>
-            )}
-            <div className="w-px h-4 bg-white/10 mx-1" />
-            <button onClick={handleReset} className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white text-[10px] font-bold uppercase tracking-wider transition-all px-2.5" title="Reset Zoom">
-              Reset
-            </button>
-          </div>
+          {!isCropping ? (
+            <div className="flex items-center rounded-xl border border-white/10 p-1 bg-white/5">
+              <button onClick={handleZoomOut} className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-all" title="Zoom out">
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <span className="px-2 font-mono text-xs font-bold text-zinc-300 w-12 text-center select-none">{zoom}%</span>
+              <button onClick={handleZoomIn} className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-all" title="Zoom in">
+                <ZoomIn className="w-4 h-4" />
+              </button>
+              {attachment.fileType === 'image' && (
+                <>
+                  <div className="w-px h-4 bg-white/10 mx-1" />
+                  <button onClick={handleRotate} className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-all" title="Rotate Right">
+                    <RotateCw className="w-4 h-4" />
+                  </button>
+                  <div className="w-px h-4 bg-white/10 mx-1" />
+                  <button 
+                    onClick={() => {
+                      setCrop(lastCrop);
+                      setCompletedCrop(lastCrop ?? null);
+                      setIsCropping(true);
+                    }} 
+                    className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-all flex items-center gap-1.5 px-2.5 text-[10px] font-bold uppercase tracking-wider" 
+                    title="Enter Crop Mode"
+                  >
+                    <CropIcon className="w-3.5 h-3.5" />
+                    <span>Crop</span>
+                  </button>
+                </>
+              )}
+              <div className="w-px h-4 bg-white/10 mx-1" />
+              <button onClick={handleReset} className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white text-[10px] font-bold uppercase tracking-wider transition-all px-2.5" title="Reset Zoom">
+                Reset
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsCropping(false)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-300 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Cancel</span>
+              </button>
+              <button
+                onClick={handleSaveCrop}
+                disabled={isSavingCrop}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 border border-emerald-500 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-[0_4px_15px_rgba(16,185,129,0.3)] transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isSavingCrop ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                <span>{isSavingCrop ? 'Saving...' : 'Apply Crop'}</span>
+              </button>
+            </div>
+          )}
 
-          <button
-            onClick={handleOpenInApp}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-300 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
-          >
-            <Eye className="w-3.5 h-3.5" />
-            <span>Open in App</span>
-          </button>
+          {!isCropping && (
+            <>
+              <button
+                onClick={handleOpenInApp}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-300 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Open in App</span>
+              </button>
 
-          <button
-            onClick={onOpenPrintWizard}
-            className="flex items-center gap-1.5 px-4.5 py-2 rounded-xl bg-blue-600 border border-blue-500 hover:bg-blue-500 text-white text-xs font-bold uppercase tracking-wider shadow-[0_4px_25px_rgba(37,99,235,0.45)] transition-all cursor-pointer"
-          >
-            <Printer className="w-4 h-4" />
-            <span>Print</span>
-          </button>
+              <button
+                onClick={onOpenPrintWizard}
+                className="flex items-center gap-1.5 px-4.5 py-2 rounded-xl bg-blue-600 border border-blue-500 hover:bg-blue-500 text-white text-xs font-bold uppercase tracking-wider shadow-[0_4px_25px_rgba(37,99,235,0.45)] transition-all cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Print</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
