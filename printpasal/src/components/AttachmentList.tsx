@@ -234,7 +234,7 @@ export default function AttachmentList({
                         isSelected
                           ? 'bg-emerald-500/10 border-emerald-500/80 text-white shadow-[0_0_15px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/25'
                           : isChecked
-                            ? 'bg-blue-500/10 border-blue-500/50 text-white shadow-[0_0_10px_rgba(59,130,246,0.1)]'
+                            ? 'bg-emerald-500/5 border-emerald-500/40 text-white'
                             : 'bg-[#0d0d14] border-white/5 hover:border-white/10 text-zinc-300 hover:bg-white/2'
                       }`}
                     >
@@ -247,7 +247,7 @@ export default function AttachmentList({
                         className="flex items-center justify-center shrink-0 w-5 transition-colors"
                       >
                         {isChecked ? (
-                          <CheckCircle className="w-4.5 h-4.5 text-blue-500 fill-blue-500/20" />
+                          <CheckCircle className="w-4.5 h-4.5 text-emerald-500 fill-emerald-500/20" />
                         ) : (
                           <Circle className="w-4.5 h-4.5 text-zinc-700 group-hover:text-zinc-500" />
                         )}
