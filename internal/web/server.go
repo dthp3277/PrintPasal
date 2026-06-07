@@ -276,6 +276,11 @@ func (s *Server) Start(addr string) error {
 		s.handleOpenInApp(w, r)
 	})
 
+	mux.HandleFunc("/api/printer/native-settings", func(w http.ResponseWriter, r *http.Request) {
+		s.log.Infof("Web", "API Call: %s", r.URL.Path)
+		s.handleOpenPrinterNativeSettings(w, r)
+	})
+
 	mux.HandleFunc("/api/print", func(w http.ResponseWriter, r *http.Request) {
 		s.log.Infof("Web", "API Call: %s", r.URL.Path)
 		s.handlePrint(w, r)
@@ -598,6 +603,14 @@ func (s *Server) handlePrint(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Filename string `json:"filename"`
 		Printer  string `json:"printer"`
+		Copies   int    `json:"copies"`
+		Orientation string `json:"orientation"`
+		Duplex   string `json:"duplex"`
+		Collate  bool   `json:"collate"`
+		ColorMode string `json:"colorMode"`
+		PaperSize string `json:"paperSize"`
+		Layout   string `json:"layout"`
+		PageRange string `json:"pageRange"`
 		FileData string `json:"fileData,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -632,9 +645,41 @@ func (s *Server) handlePrint(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.log.Infof("Web", "Printing %s to %s", filepath.Base(path), body.Printer)
-	err := printer.Print(path, body.Printer)
+	err := printer.Print(path, body.Printer, printer.PrintOptions{
+		Copies:      body.Copies,
+		Orientation: body.Orientation,
+		ColorMode:   body.ColorMode,
+		Duplex:      body.Duplex,
+		Collate:     body.Collate,
+		PaperSize:   body.PaperSize,
+		Layout:      body.Layout,
+		PageRange:   body.PageRange,
+	})
 	if err != nil {
 		s.log.Errorf("Web", "Print error: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleOpenPrinterNativeSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		Printer    string `json:"printer"`
+		Properties bool   `json:"properties"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Printer) == "" {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if err := printer.OpenNativeSettings(body.Printer, body.Properties); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

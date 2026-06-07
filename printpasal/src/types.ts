@@ -60,15 +60,32 @@ export interface Printer {
   id: string;
   name: string;
   type: 'local' | 'network' | 'usb';
-  status: 'ready' | 'offline' | 'printing' | 'low-ink';
+  status: 'ready' | 'offline' | 'printing' | 'busy' | 'paused' | 'error' | 'unknown' | 'low-ink';
   location?: string;
   isDefault?: boolean;
+  supportsColor?: boolean;
+  supportsDuplex?: boolean;
+  supportsCollate?: boolean;
+  supportsCopies?: boolean;
 }
 
 export interface PrintSettings {
   copies: number;
   orientation: 'portrait' | 'landscape';
   colorMode: 'color' | 'mono';
+  duplex: 'simplex' | 'long-edge' | 'short-edge';
+  collate: boolean;
+  paperSize: 'A4' | 'Letter' | 'Legal';
+  layout: 'fit' | 'fill' | 'original';
+  pageRange: string;
+}
+
+export interface PrintOptions {
+  copies: number;
+  orientation: 'portrait' | 'landscape';
+  colorMode: 'color' | 'mono';
+  duplex: 'simplex' | 'long-edge' | 'short-edge';
+  collate: boolean;
   paperSize: 'A4' | 'Letter' | 'Legal';
   layout: 'fit' | 'fill' | 'original';
 }
